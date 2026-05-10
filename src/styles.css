@@ -1,0 +1,141 @@
+@import "tailwindcss" source(none);
+@source "../src";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-gold: var(--gold);
+  --color-gold-soft: var(--gold-soft);
+  --color-gold-deep: var(--gold-deep);
+  --color-onyx: var(--onyx);
+  --font-display: "Cormorant Garamond", "Playfair Display", serif;
+  --font-sans: "Inter", system-ui, sans-serif;
+}
+
+:root {
+  --radius: 0.5rem;
+  /* Luxury dark + gold palette */
+  --background: oklch(0.16 0.005 60);
+  --foreground: oklch(0.96 0.01 80);
+  --card: oklch(0.2 0.008 60);
+  --card-foreground: oklch(0.96 0.01 80);
+  --popover: oklch(0.18 0.006 60);
+  --popover-foreground: oklch(0.96 0.01 80);
+  --primary: oklch(0.78 0.13 80);            /* warm gold */
+  --primary-foreground: oklch(0.15 0.005 60);
+  --secondary: oklch(0.24 0.008 60);
+  --secondary-foreground: oklch(0.96 0.01 80);
+  --muted: oklch(0.22 0.008 60);
+  --muted-foreground: oklch(0.65 0.015 70);
+  --accent: oklch(0.78 0.13 80);
+  --accent-foreground: oklch(0.15 0.005 60);
+  --destructive: oklch(0.6 0.22 25);
+  --destructive-foreground: oklch(0.98 0 0);
+  --border: oklch(0.28 0.01 70 / 50%);
+  --input: oklch(0.28 0.01 70 / 60%);
+  --ring: oklch(0.78 0.13 80);
+
+  --gold: oklch(0.82 0.14 82);
+  --gold-soft: oklch(0.88 0.09 85);
+  --gold-deep: oklch(0.62 0.13 70);
+  --onyx: oklch(0.12 0.005 60);
+
+  --gradient-gold: linear-gradient(135deg, oklch(0.88 0.11 85), oklch(0.7 0.14 75) 50%, oklch(0.55 0.12 65));
+  --gradient-dark: linear-gradient(180deg, oklch(0.12 0.005 60), oklch(0.18 0.006 60));
+  --gradient-radial-gold: radial-gradient(ellipse at center, oklch(0.78 0.13 80 / 25%), transparent 70%);
+  --shadow-gold: 0 10px 40px -10px oklch(0.78 0.13 80 / 35%);
+  --shadow-luxe: 0 25px 60px -20px oklch(0 0 0 / 70%);
+}
+
+.dark {
+  --background: oklch(0.16 0.005 60);
+  --foreground: oklch(0.96 0.01 80);
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+  html {
+    scroll-behavior: smooth;
+  }
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+  h1, h2, h3, h4, .font-display {
+    font-family: var(--font-display);
+    letter-spacing: -0.01em;
+  }
+}
+
+@layer utilities {
+  .text-gold { color: var(--gold); }
+  .bg-gold { background-color: var(--gold); }
+  .border-gold { border-color: var(--gold); }
+  .gradient-gold-text {
+    background: var(--gradient-gold);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+  }
+  .bg-gradient-gold { background: var(--gradient-gold); }
+  .bg-gradient-dark { background: var(--gradient-dark); }
+  .bg-radial-gold { background: var(--gradient-radial-gold); }
+  .shadow-gold { box-shadow: var(--shadow-gold); }
+  .shadow-luxe { box-shadow: var(--shadow-luxe); }
+  .hairline { border: 1px solid oklch(0.78 0.13 80 / 25%); }
+  .text-balance { text-wrap: balance; }
+  .container-luxe {
+    width: 100%;
+    margin-inline: auto;
+    padding-inline: 1.25rem;
+    max-width: 1280px;
+  }
+  @media (min-width: 768px) {
+    .container-luxe { padding-inline: 2rem; }
+  }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.shimmer {
+  background: linear-gradient(90deg, transparent, oklch(0.78 0.13 80 / 30%), transparent);
+  background-size: 200% 100%;
+  animation: shimmer 2.5s infinite;
+}
+
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-up { animation: fade-up 0.7s ease-out both; }

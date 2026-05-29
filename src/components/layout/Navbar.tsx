@@ -1,6 +1,6 @@
-import { Link, useRouterState, useNavigate } from "@tanstack/react-router"; // useNavigate যোগ করা হয়েছে
-import { useEffect, useState, useMemo } from "react"; // useMemo যোগ করা হয়েছে
-import { Search, ShoppingBag, Menu, X, Tag } from "lucide-react"; // Tag আইকন যোগ করা হয়েছে
+import { Link, useRouterState, useNavigate } from "@tanstack/react-router";
+import { useEffect, useState } from "react";
+import { Search, ShoppingBag, Menu, X, Tag, Loader2 } from "lucide-react";
 import { useCart } from "@/store/cart";
 import { motion, AnimatePresence } from "framer-motion";
 import { 
@@ -12,11 +12,11 @@ import {
   CommandList 
 } from "@/components/ui/command";
 
-// লোগো এবং প্রোডাক্ট ডাটা ইম্পোর্ট
 import logoImg from "@/assets/logo.png"; 
-import { useProducts, useBrands } from "@/lib/queries";
+import { useBrands } from "@/lib/queries";
 import { formatPrice } from "@/lib/utils";
-
+import { supabase } from "@/integrations/supabase/client";
+import { resolveImage } from "@/lib/db";
 
 const links = [
   { to: "/", label: "Home" },
@@ -31,38 +31,54 @@ export function Navbar() {
   const [scrolled, setScrolled] = useState(false);
   const [open, setOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState(""); // সার্চ কুয়েরি স্টেট
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
   
   const count = useCart((s) => s.items.reduce((n, i) => n + i.qty, 0));
   const path = useRouterState({ select: (r) => r.location.pathname });
-  const navigate = useNavigate(); // নেভিগেশনের জন্য
+  const navigate = useNavigate();
 
-  const { data: products = [] } = useProducts();
   const { data: brands = [] } = useBrands();
 
-  // ১. সার্চ লজিক: useMemo ব্যবহার করে পারফরম্যান্স অপ্টিমাইজ করা হয়েছে
-  const filteredResults = useMemo(() => {
-    if (!searchQuery.trim()) return [];
+  // 1. Optimized Server-Side Search Logic (Debounced)
+  useEffect(() => {
+    const delayDebounceFn = setTimeout(async () => {
+      if (searchQuery.trim().length < 2) {
+        setSearchResults([]);
+        setIsSearching(false);
+        return;
+      }
 
-    const query = searchQuery.toLowerCase().trim();
+      setIsSearching(true);
+      try {
+        const { data, error } = await supabase
+          .from("products")
+          .select("id, name, brand, price, discount_price, images, tags")
+          .filter("is_active", "eq", true)
+          // Search in name or brand
+          .or(`name.ilike.%${searchQuery}%,brand.ilike.%${searchQuery}%`)
+          .limit(6);
 
-    return products.filter((product) => {
-      return (
-        product.name.toLowerCase().includes(query) ||
-        product.brand.toLowerCase().includes(query) ||
-        product.tags.some((tag) => tag.toLowerCase().includes(query)) // ট্যাগ দিয়েও সার্চ করা যাবে
-      );
-    }).slice(0, 10); // সর্বোচ্চ ১০টি রেজাল্ট দেখাবে
-  }, [searchQuery, products]);
+        if (error) throw error;
+        setSearchResults(data || []);
+      } catch (err) {
+        console.error("Search error:", err);
+      } finally {
+        setIsSearching(false);
+      }
+    }, 300); // 300ms delay to prevent excessive DB hits
 
-  // রেজাল্টে ক্লিক করলে ডিটেইলস পেজে যাওয়ার ফাংশন
+    return () => clearTimeout(delayDebounceFn);
+  }, [searchQuery]);
+
   const handleSelectResult = (productId: string) => {
-    setSearchOpen(false); // সার্চ বক্স বন্ধ হবে
-    setSearchQuery(""); // কুয়েরি ক্লিয়ার হবে
-    navigate({ to: `/products/${productId}` as any }); // ডিটেইলস পেজে যাবে
+    setSearchOpen(false);
+    setSearchQuery("");
+    navigate({ to: `/products/${productId}` as any });
   };
 
-  // কিবোর্ড শর্টকাট (Ctrl+K)
+  // Keyboard shortcut (Ctrl+K)
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
       if (e.key === "k" && (e.metaKey || e.ctrlKey)) {
@@ -82,7 +98,7 @@ export function Navbar() {
 
   return (
     <header className="fixed top-0 left-0 w-full z-[100]">
-      {/* গ্লাস ব্যাকগ্রাউন্ড বার */}
+      {/* Glass Background Bar */}
       <div 
         className={`
           absolute inset-0 w-full h-24 md:h-32 transition-all duration-500 -z-10
@@ -93,7 +109,6 @@ export function Navbar() {
         `}
       />
 
-      {/* ন্যাভবার কন্টেন্ট */}
       <div className="container-luxe h-24 md:h-32 flex items-center justify-between relative px-6 md:px-10">
         <div className="flex-shrink-0">
           <Link to="/">
@@ -160,34 +175,40 @@ export function Navbar() {
         <div className="hidden lg:block w-24" /> 
       </div>
 
-      {/* ২. কমান্ড প্যালেট সেকশন - এখন ফুলি ফাংশনাল */}
+      {/* Command Palette Search */}
       <CommandDialog open={searchOpen} onOpenChange={setSearchOpen}>
         <div className="bg-onyx border border-gold/20 overflow-hidden shadow-2xl">
-          <CommandInput 
-            value={searchQuery}
-            onValueChange={setSearchQuery} // টাইপ করা টেক্সট এখানে স্টোর হবে
-            placeholder="Search luxury timepieces, brands or tags..." 
-            className="h-14 text-gold border-none focus:ring-0 placeholder:text-white/30" 
-          />
+          <div className="relative">
+            <CommandInput 
+              value={searchQuery}
+              onValueChange={setSearchQuery}
+              placeholder="Search timepieces or brands..." 
+              className="h-14 text-gold border-none focus:ring-0 placeholder:text-white/30" 
+            />
+            {isSearching && (
+              <div className="absolute right-4 top-4">
+                <Loader2 className="w-5 h-5 text-gold animate-spin" />
+              </div>
+            )}
+          </div>
           
-          <CommandList className="max-h-[350px] border-t border-white/5 bg-[#0a0a0a]">
-            {searchQuery.trim() && (
+          <CommandList className="max-h-[380px] border-t border-white/5 bg-[#0a0a0a] no-scrollbar">
+            {searchQuery.length >= 2 && !isSearching && searchResults.length === 0 && (
               <CommandEmpty className="py-12 text-center text-sm text-white/40">
                 No timepieces found for "<span className="text-gold">{searchQuery}</span>".
               </CommandEmpty>
             )}
             
-            {/* ৩. সার্চ রেজাল্ট ম্যাপিং (ঘড়ির ছবিসহ) */}
-            {filteredResults.length > 0 && (
-              <CommandGroup heading={<span className="text-gold/50 px-2 text-[10px] uppercase tracking-widest">Matched Timepieces</span>}>
-                {filteredResults.map((product) => (
+            {searchResults.length > 0 && (
+              <CommandGroup heading={<span className="text-gold/50 px-2 text-[10px] uppercase tracking-widest">Available Timepieces</span>}>
+                {searchResults.map((product) => (
                   <CommandItem 
                     key={product.id} 
-                    onSelect={() => handleSelectResult(product.id)} // সিলেক্ট করলে ডিটেইলস পেজে যাবে
+                    onSelect={() => handleSelectResult(product.id)}
                     className="flex gap-4 p-3 items-center hover:bg-white/5 cursor-pointer text-white/80 transition-colors"
                   >
                     <img 
-                      src={product.image} 
+                      src={resolveImage(product.images?.[0])} 
                       alt={product.name} 
                       className="w-12 h-12 object-cover rounded-lg border border-white/10" 
                     />
@@ -196,27 +217,30 @@ export function Navbar() {
                       <span className="text-xs text-white/50 tracking-wider font-light">{product.brand}</span>
                     </div>
                     <div className="text-right">
-                       <p className="text-[14px] font-bold text-gold">{formatPrice(product.price)}</p>
-                       {product.oldPrice && <p className="text-[10px] text-white/40 line-through">{formatPrice(product.oldPrice)}</p>}
+                       <p className="text-[14px] font-bold text-gold">
+                        {formatPrice(product.discount_price ?? product.price)}
+                       </p>
                     </div>
                   </CommandItem>
                 ))}
               </CommandGroup>
             )}
 
-            {/* ৪. প্রি-সেট ব্র্যান্ড সাজেশন (ডাটাবেস থেকে) */}
-            {!searchQuery.trim() && (
+            {/* Default Brand Suggestions */}
+            {!searchQuery && (
                 <CommandGroup heading={<span className="text-gold/50 px-2 text-[10px] uppercase tracking-widest">Top Brands</span>}>
                   {brands.slice(0, 5).map(brand => (
                       <CommandItem 
                         key={brand.slug}
                         onSelect={() => {
                             setSearchOpen(false);
-                            navigate({ to: `/brands` as any, search: { brand: brand.slug } }); // ব্র্যান্ড পেজে নিয়ে যাবে
+                            navigate({ to: `/shop` as any, search: { brand: brand.slug } });
                         }}
-                        className="hover:bg-white/5 cursor-pointer text-white/80 p-2 pl-3"
+                        className="hover:bg-white/5 cursor-pointer text-white/80 p-2 pl-3 flex items-center"
                       >
-                         <Tag className="w-3 h-3 mr-3 text-gold" /> {brand.name} ({brand.count} watches)
+                         <Tag className="w-3 h-3 mr-3 text-gold" /> 
+                         <span>{brand.name}</span>
+                         <span className="ml-auto text-[10px] text-white/20 uppercase">{brand.count} items</span>
                       </CommandItem>
                   ))}
                 </CommandGroup>
@@ -224,13 +248,13 @@ export function Navbar() {
           </CommandList>
           
           <div className="p-3 border-t border-white/5 flex justify-between items-center bg-black/40">
-            <p className="text-[10px] text-white/30 uppercase tracking-tighter">Search by Virazo Watch • {products.length} Items</p>
+            <p className="text-[10px] text-white/30 uppercase tracking-tighter italic">Official Boutique Search</p>
              <span className="text-[10px] text-white/30 px-1.5 py-0.5 rounded border border-white/10">ESC to close</span>
           </div>
         </div>
       </CommandDialog>
 
-      {/* মোবাইল মেনু */}
+      {/* Mobile Menu */}
       <AnimatePresence>
         {open && (
           <motion.div

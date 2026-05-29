@@ -6,10 +6,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { Eye, Plus } from "lucide-react";
+import { Eye, Plus, ShoppingBag, CheckCircle, Package } from "lucide-react";
 import { useState } from "react";
 import { formatPrice } from "@/lib/utils";
-
 
 export const Route = createFileRoute("/admin/orders/")({
   component: OrdersList,
@@ -22,75 +21,97 @@ function OrdersList() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  // ১. অর্ডার লিস্ট ডাটা ফেচিং
   const { data: orders = [] } = useQuery({
     queryKey: ["admin-orders"],
-    queryFn: async () => (await supabase.from("orders").select("*").order("created_at", { ascending: false })).data ?? [],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("orders")
+        .select(`*, order_items (product_name, quantity, product_id)`)
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return data;
+    },
   });
 
-  // ২. প্রোডাক্ট লিস্ট ফেচিং (ম্যানুয়াল অর্ডারের জন্য)
   const { data: products = [] } = useQuery({
     queryKey: ["admin-products-list"],
-    queryFn: async () => (await supabase.from("products").select("id, name, price, stock")).data ?? [],
+    queryFn: async () => {
+      const { data } = await supabase.from("products").select("id, name, price, stock").eq("is_active", true);
+      return data || [];
+    },
   });
 
   const setStatus = async (id: string, status: string) => {
     const { error } = await supabase.from("orders").update({ status: status as any }).eq("id", id);
     if (error) return toast.error(error.message);
-    toast.success("Updated");
+    toast.success(`Status updated to ${status}`);
     qc.invalidateQueries({ queryKey: ["admin-orders"] });
   };
 
-  // ৩. ম্যানুয়াল অর্ডার সেভ করার ফাংশন (Selling Price সহ)
+  // Production "Accept" with automated logging
+  const handleAccept = async (o: any) => {
+    try {
+      setLoading(true);
+      
+      // Set the "Reason" for the DB Trigger
+      await supabase.rpc('set_config', { name: 'app.inventory_log_reason', value: `Sale: Order #${o.order_number}`, is_local: true });
+
+      for (const item of o.order_items) {
+        await supabase.rpc('reduce_stock', { p_id: item.product_id, q: item.quantity });
+      }
+
+      await supabase.from("orders").update({ status: "processing" }).eq("id", o.id);
+      
+      toast.success("Order confirmed and stock logged");
+      qc.invalidateQueries({ queryKey: ["admin-orders"] });
+      qc.invalidateQueries({ queryKey: ["inv-log"] }); // Refresh inventory history
+    } catch (err) {
+      toast.error("Failed to process order");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Manual Offline Sale
   const handleManualOrder = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setLoading(true);
     const formData = new FormData(e.currentTarget);
-    
     const productId = formData.get("productId") as string;
     const qty = Number(formData.get("qty"));
-    const manualPrice = Number(formData.get("manualPrice")); // আপনার দেওয়া কাস্টম প্রাইস
+    const manualPrice = Number(formData.get("manualPrice"));
     const selectedProduct = products.find(p => p.id === productId);
 
-    if (!selectedProduct) return toast.error("Product not found");
-    if (selectedProduct.stock < qty) return toast.error("Not enough stock!");
+    if (!selectedProduct) return;
 
     try {
-      // ১. অর্ডার ইনসার্ট
-      const { data: order, error: orderError } = await supabase.from("orders").insert([{
-        customer_name: formData.get("name"),
-        customer_phone: formData.get("phone"),
-        customer_email: `${formData.get("name")?.toString().toLowerCase().replace(/\s/g, '')}@manual.com`, // Generate dummy if needed
-        address: "Offline Store Sale",
-        city: "Dhaka",
-        total: manualPrice * qty,
-        status: "delivered",
-        payment_status: "paid",
-        payment_method: "offline",
-      }]).select("id").single();
-      if (orderError || !order) throw orderError ?? new Error("Order failed");
+      const { data: order, error: orderError } = await supabase
+        .from("orders")
+        .insert([{
+          customer_name: formData.get("name"),
+          customer_phone: formData.get("phone"),
+          customer_email: `${formData.get("name")?.toString().toLowerCase().replace(/\s/g, '')}@offline.com`,
+          address: "In-Store Purchase",
+          city: "Dhaka",
+          total: manualPrice * qty,
+          status: "delivered",
+          payment_status: "paid",
+          payment_method: "offline",
+        }])
+        .select("id, order_number").single();
 
-      // ২. অর্ডার আইটেম ইনসার্ট
-      const { error: itemsError } = await supabase.from("order_items").insert([{
-        order_id: order.id,
-        product_id: productId,
-        product_name: selectedProduct.name,
-        quantity: qty,
-        unit_price: manualPrice,
-      }]);
-      if (itemsError) throw itemsError;
+      if (orderError) throw orderError;
 
-      // সরাসরি স্টক আপডেট (RPC এর ঝামেলা এড়াতে)
-      const { error: stockError } = await supabase
-        .from('products')
-        .update({ stock: selectedProduct.stock - qty })
-        .eq('id', productId);
+      // Log specific reason for trigger
+      await supabase.rpc('set_config', { name: 'app.inventory_log_reason', value: `Offline Sale: ${order.order_number}`, is_local: true });
+      await supabase.rpc('reduce_stock', { p_id: productId, q: qty });
 
-      if (stockError) throw stockError;
+      await supabase.from("order_items").insert([{ order_id: order.id, product_id: productId, product_name: selectedProduct.name, quantity: qty, unit_price: manualPrice }]);
 
-      toast.success("Offline sale recorded & stock updated!");
+      toast.success("Offline sale logged");
       setIsModalOpen(false);
       qc.invalidateQueries({ queryKey: ["admin-orders"] });
+      qc.invalidateQueries({ queryKey: ["inv-log"] });
     } catch (error: any) {
       toast.error(error.message);
     } finally {
@@ -99,106 +120,62 @@ function OrdersList() {
   };
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
       <div className="flex justify-between items-center">
-        <h1 className="font-display text-3xl">Orders</h1>
-        
-        {/* ম্যানুয়াল অর্ডার বাটন ও মডাল */}
+        <h1 className="font-display text-4xl text-white">Order Vault</h1>
         <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
           <DialogTrigger asChild>
-            <Button className="bg-gold hover:bg-gold/80 text-black font-semibold">
-              <Plus className="w-4 h-4 mr-2" /> Manual Order
-            </Button>
+            <Button className="bg-gold hover:bg-gold/80 text-onyx font-bold px-6 h-12 shadow-gold"><Plus className="w-5 h-5 mr-2" /> NEW OFFLINE SALE</Button>
           </DialogTrigger>
-          <DialogContent className="sm:max-w-[500px] bg-[#121212] border-border text-white">
-            <DialogHeader>
-              <DialogTitle className="text-2xl font-display text-gold">Create Offline Sale</DialogTitle>
-            </DialogHeader>
-            <form onSubmit={handleManualOrder} className="space-y-6 pt-4">
+          <DialogContent className="sm:max-w-[500px] bg-onyx border-gold/20 text-white">
+            <DialogHeader><DialogTitle className="text-2xl font-display text-gold">In-Store Transaction</DialogTitle></DialogHeader>
+            <form onSubmit={handleManualOrder} className="space-y-5 pt-4">
               <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <label className="text-sm text-muted-foreground">Customer Name</label>
-                  <Input name="name" className="bg-muted/20 border-border" placeholder="e.g. Amit" required />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm text-muted-foreground">Phone Number</label>
-                  <Input name="phone" className="bg-muted/20 border-border" placeholder="017..." required />
-                </div>
+                <div className="space-y-1.5"><label className="text-[10px] uppercase text-gold/70 font-bold">Customer Name</label><Input name="name" className="bg-white/5 border-white/10" required /></div>
+                <div className="space-y-1.5"><label className="text-[10px] uppercase text-gold/70 font-bold">Phone Number</label><Input name="phone" className="bg-white/5 border-white/10" required /></div>
               </div>
-
-              <div className="space-y-2">
-                <label className="text-sm text-muted-foreground">Select Product</label>
+              <div className="space-y-1.5"><label className="text-[10px] uppercase text-gold/70 font-bold">Select Watch</label>
                 <Select name="productId" required>
-                  <SelectTrigger className="bg-muted/20 border-border">
-                    <SelectValue placeholder="Choose a watch" />
-                  </SelectTrigger>
-                  <SelectContent className="bg-[#1a1a1a] border-border">
-                    {products.map(p => (
-                      <SelectItem key={p.id} value={p.id}>
-                        {p.name} (Stock: {p.stock})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
+                  <SelectTrigger className="bg-white/5 border-white/10 h-12"><SelectValue placeholder="Inventory" /></SelectTrigger>
+                  <SelectContent className="bg-onyx border-white/10">{products.map(p => (<SelectItem key={p.id} value={p.id}>{p.name} (Stock: {p.stock})</SelectItem>))}</SelectContent>
                 </Select>
               </div>
-
               <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <label className="text-sm text-muted-foreground">Quantity (Pcs)</label>
-                  <Input name="qty" type="number" defaultValue="1" min="1" className="bg-muted/20 border-border" required />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm text-muted-foreground">Selling Price (Unit)</label>
-                  <Input name="manualPrice" type="number" className="bg-muted/20 border-gold/40 focus:border-gold" placeholder="Enter amount" required />
-                </div>
+                <div className="space-y-1.5"><label className="text-[10px] uppercase text-gold/70 font-bold">Quantity</label><Input name="qty" type="number" defaultValue="1" className="bg-white/5 border-white/10" required /></div>
+                <div className="space-y-1.5"><label className="text-[10px] uppercase text-gold/70 font-bold">Price</label><Input name="manualPrice" type="number" className="bg-white/5 border-gold/30" required /></div>
               </div>
-
-              <Button type="submit" className="w-full bg-gold hover:bg-gold/80 text-black font-bold text-lg h-12" disabled={loading}>
-                {loading ? "Processing..." : "Confirm Sale"}
-              </Button>
+              <Button type="submit" className="w-full bg-gradient-gold text-onyx font-black h-12" disabled={loading}>CONFIRM SALE</Button>
             </form>
           </DialogContent>
         </Dialog>
       </div>
 
-      <div className="bg-card border border-border rounded-xl overflow-x-auto">
+      <div className="bg-white/5 backdrop-blur-md border border-white/10 rounded-3xl overflow-hidden shadow-2xl">
         <table className="w-full text-sm">
-          <thead className="bg-muted/30 text-xs uppercase tracking-wider text-muted-foreground">
-            <tr>
-              <th className="p-3 text-left">Order #</th>
-              <th className="p-3 text-left">Customer</th>
-              <th className="p-3 text-left">Total</th>
-              <th className="p-3 text-left">Status</th>
-              <th className="p-3 text-left">Date</th>
-              <th className="p-3"></th>
-            </tr>
+          <thead className="bg-white/5 text-[10px] uppercase text-gold font-black">
+            <tr><th className="p-5 text-left">Order #</th><th className="p-5 text-left">Customer</th><th className="p-5 text-left">Watch(es)</th><th className="p-5 text-left">Amount</th><th className="p-5 text-left">Status</th><th className="p-5 text-right">Actions</th></tr>
           </thead>
-          <tbody>
+          <tbody className="divide-y divide-white/5">
             {orders.map((o: any) => (
-              <tr key={o.id} className="border-t border-border">
-                <td className="p-3 font-mono text-xs">{o.order_number || `#${o.id.slice(0,8)}`}</td>
-                <td className="p-3">
-                  <div>{o.customer_name}</div>
-                  <div className="text-xs text-muted-foreground">{o.customer_phone}</div>
-                </td>
-                <td className="p-3 text-gold">{formatPrice(o.total)}</td>
-                <td className="p-3">
+              <tr key={o.id} className="hover:bg-white/5 transition-colors">
+                <td className="p-5 font-mono text-xs text-gold/60">{o.order_number}</td>
+                <td className="p-5"><div>{o.customer_name}</div><div className="text-[10px] text-white/30 uppercase">{o.customer_phone}</div></td>
+                <td className="p-5 max-w-[200px]">{o.order_items?.map((item: any, i: number) => (<div key={i} className="flex items-center gap-2 mb-1"><Package size={12} className="text-gold/50" /><span className="truncate text-white/80">{item.product_name}</span><span className="text-[10px] text-white/20">x{item.quantity}</span></div>))}</td>
+                <td className="p-5 font-bold text-white">{formatPrice(o.total)}</td>
+                <td className="p-5">
                   <Select value={o.status} onValueChange={(v) => setStatus(o.id, v)}>
-                    <SelectTrigger className="w-36 h-8"><SelectValue /></SelectTrigger>
-                    <SelectContent>{statuses.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
+                    <SelectTrigger className={`w-32 h-8 text-[10px] font-black uppercase rounded-full border-none ${o.status === 'delivered' ? 'bg-emerald-500/20 text-emerald-400' : o.status === 'cancelled' ? 'bg-red-500/20 text-red-400' : 'bg-gold/20 text-gold'}`}><SelectValue /></SelectTrigger>
+                    <SelectContent className="bg-onyx">{statuses.map(s => <SelectItem key={s} value={s} className="text-[10px] uppercase">{s}</SelectItem>)}</SelectContent>
                   </Select>
                 </td>
-                <td className="p-3 text-muted-foreground">{new Date(o.created_at).toLocaleDateString()}</td>
-                <td className="p-3 text-right">
-                  <Link to="/admin/orders/$id" params={{ id: o.id }} className="p-2 inline-flex hover:text-gold">
-                    <Eye className="w-4 h-4" />
-                  </Link>
+                <td className="p-5 text-right">
+                  <div className="flex justify-end gap-2">
+                    {o.status === 'pending' && (<Button size="sm" onClick={() => handleAccept(o)} className="h-8 bg-emerald-600 text-white text-[10px] font-black">ACCEPT</Button>)}
+                    <Link to="/admin/orders/$id" params={{ id: o.id }} className="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center hover:bg-gold hover:text-onyx transition-all"><Eye size={14} /></Link>
+                  </div>
                 </td>
               </tr>
             ))}
-            {orders.length === 0 && (
-              <tr><td colSpan={6} className="p-6 text-center text-muted-foreground">No orders yet.</td></tr>
-            )}
           </tbody>
         </table>
       </div>

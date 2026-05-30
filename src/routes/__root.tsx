@@ -33,10 +33,17 @@ function NotFoundComponent() {
 }
 
 export const Route = createRootRoute({
+  head: () => ({
+    links: [
+      {
+        rel: "stylesheet",
+        href: appCss,
+      },
+    ],
+  }),
   component: RootComponent,
   notFoundComponent: NotFoundComponent,
 });
-
 
 function RootComponent() {
   const path = useRouterState({ select: (r) => r.location.pathname });

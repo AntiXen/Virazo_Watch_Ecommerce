@@ -7,18 +7,15 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { toast } from "sonner";
+import { AdminPage, AdminTitle, FormCard } from "@/components/ui/admin-ui";
 
-export const Route = createFileRoute("/admin/content")({
-  component: ContentPage,
-});
+export const Route = createFileRoute("/admin/content")({ component: ContentPage });
 
 function useBlock<T extends Record<string, any>>(key: string, initial: T) {
   const [value, setValue] = useState<T>(initial);
-  const [loaded, setLoaded] = useState(false);
   useEffect(() => {
     supabase.from("content_blocks").select("value").eq("key", key).maybeSingle().then(({ data }) => {
       if (data?.value) setValue({ ...initial, ...(data.value as any) });
-      setLoaded(true);
     });
   }, [key]);
   const save = async () => {
@@ -26,7 +23,20 @@ function useBlock<T extends Record<string, any>>(key: string, initial: T) {
     if (error) return toast.error(error.message);
     toast.success("Saved");
   };
-  return { value, setValue, loaded, save };
+  return { value, setValue, save };
+}
+
+function F({ label, value, onChange, rows }: { label: string; value: string; onChange: (v: string) => void; rows?: number }) {
+  return (
+    <div className="space-y-1.5">
+      <Label className="text-xs text-gray-500 font-semibold">{label}</Label>
+      {rows ? (
+        <Textarea rows={rows} value={value} onChange={(e) => onChange(e.target.value)} className="bg-black/[0.02] border-black/[0.08]" />
+      ) : (
+        <Input value={value} onChange={(e) => onChange(e.target.value)} className="bg-black/[0.02] border-black/[0.08]" />
+      )}
+    </div>
+  );
 }
 
 function ContentPage() {
@@ -36,62 +46,69 @@ function ContentPage() {
   const footer = useBlock("footer_links", { col1_title: "Shop", col1: [] as { label: string; url: string }[], col2_title: "Support", col2: [] as { label: string; url: string }[] });
 
   return (
-    <div className="space-y-6 max-w-4xl">
-      <h1 className="font-display text-3xl">Content & Pages</h1>
+    <AdminPage>
+      <AdminTitle sub="Edit homepage text, policies, and footer links">Content & Pages</AdminTitle>
       <Tabs defaultValue="home">
-        <TabsList><TabsTrigger value="home">Homepage</TabsTrigger><TabsTrigger value="about">About</TabsTrigger><TabsTrigger value="policies">Policies</TabsTrigger><TabsTrigger value="footer">Footer</TabsTrigger></TabsList>
+        <TabsList className="bg-black/[0.04] border border-black/[0.06] p-1 rounded-xl mb-5">
+          {["home", "about", "policies", "footer"].map((t) => (
+            <TabsTrigger key={t} value={t} className="rounded-lg text-xs font-semibold capitalize data-[state=active]:bg-white data-[state=active]:shadow-sm">
+              {t.charAt(0).toUpperCase() + t.slice(1)}
+            </TabsTrigger>
+          ))}
+        </TabsList>
 
-        <TabsContent value="home" className="bg-card border border-border rounded-xl p-5 space-y-3">
-          <div><Label>Hero Title</Label><Input value={home.value.hero_title} onChange={(e) => home.setValue({ ...home.value, hero_title: e.target.value })} /></div>
-          <div><Label>Hero Subtitle</Label><Textarea value={home.value.hero_subtitle} onChange={(e) => home.setValue({ ...home.value, hero_subtitle: e.target.value })} /></div>
-          <Button onClick={home.save} className="bg-gradient-gold text-onyx hover:brightness-110">Save</Button>
+        <TabsContent value="home">
+          <FormCard>
+            <F label="Hero Title" value={home.value.hero_title} onChange={(v) => home.setValue({ ...home.value, hero_title: v })} />
+            <F label="Hero Subtitle" value={home.value.hero_subtitle} onChange={(v) => home.setValue({ ...home.value, hero_subtitle: v })} rows={3} />
+            <Button onClick={home.save} className="bg-gradient-gold text-onyx font-bold hover:brightness-105">Save</Button>
+          </FormCard>
         </TabsContent>
 
-        <TabsContent value="about" className="bg-card border border-border rounded-xl p-5 space-y-3">
-          <div><Label>Title</Label><Input value={about.value.title} onChange={(e) => about.setValue({ ...about.value, title: e.target.value })} /></div>
-          <div><Label>Content</Label><Textarea rows={8} value={about.value.content} onChange={(e) => about.setValue({ ...about.value, content: e.target.value })} /></div>
-          <Button onClick={about.save} className="bg-gradient-gold text-onyx hover:brightness-110">Save</Button>
+        <TabsContent value="about">
+          <FormCard>
+            <F label="Page Title" value={about.value.title} onChange={(v) => about.setValue({ ...about.value, title: v })} />
+            <F label="Content" value={about.value.content} onChange={(v) => about.setValue({ ...about.value, content: v })} rows={8} />
+            <Button onClick={about.save} className="bg-gradient-gold text-onyx font-bold hover:brightness-105">Save</Button>
+          </FormCard>
         </TabsContent>
 
-        <TabsContent value="policies" className="bg-card border border-border rounded-xl p-5 space-y-3">
-          <div><Label>Shipping</Label><Textarea rows={3} value={policies.value.shipping} onChange={(e) => policies.setValue({ ...policies.value, shipping: e.target.value })} /></div>
-          <div><Label>Returns</Label><Textarea rows={3} value={policies.value.returns} onChange={(e) => policies.setValue({ ...policies.value, returns: e.target.value })} /></div>
-          <div><Label>Warranty</Label><Textarea rows={3} value={policies.value.warranty} onChange={(e) => policies.setValue({ ...policies.value, warranty: e.target.value })} /></div>
-          <Button onClick={policies.save} className="bg-gradient-gold text-onyx hover:brightness-110">Save</Button>
+        <TabsContent value="policies">
+          <FormCard>
+            <F label="Shipping Policy" value={policies.value.shipping} onChange={(v) => policies.setValue({ ...policies.value, shipping: v })} rows={4} />
+            <F label="Returns Policy" value={policies.value.returns} onChange={(v) => policies.setValue({ ...policies.value, returns: v })} rows={4} />
+            <F label="Warranty Policy" value={policies.value.warranty} onChange={(v) => policies.setValue({ ...policies.value, warranty: v })} rows={4} />
+            <Button onClick={policies.save} className="bg-gradient-gold text-onyx font-bold hover:brightness-105">Save</Button>
+          </FormCard>
         </TabsContent>
 
-        <TabsContent value="footer" className="bg-card border border-border rounded-xl p-5 space-y-3">
-          <p className="text-sm text-muted-foreground">Footer link columns (JSON-style editor).</p>
-          <div className="grid md:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label>Column 1 title</Label>
-              <Input value={footer.value.col1_title} onChange={(e) => footer.setValue({ ...footer.value, col1_title: e.target.value })} />
-              <LinkList items={footer.value.col1} onChange={(v) => footer.setValue({ ...footer.value, col1: v })} />
+        <TabsContent value="footer">
+          <FormCard>
+            <p className="text-xs text-gray-400">Manage footer navigation columns.</p>
+            <div className="grid md:grid-cols-2 gap-6">
+              {[
+                { title: footer.value.col1_title, items: footer.value.col1, setTitle: (v: string) => footer.setValue({ ...footer.value, col1_title: v }), setItems: (v: any) => footer.setValue({ ...footer.value, col1: v }) },
+                { title: footer.value.col2_title, items: footer.value.col2, setTitle: (v: string) => footer.setValue({ ...footer.value, col2_title: v }), setItems: (v: any) => footer.setValue({ ...footer.value, col2: v }) },
+              ].map((col, ci) => (
+                <div key={ci} className="space-y-3">
+                  <F label={`Column ${ci + 1} Title`} value={col.title} onChange={col.setTitle} />
+                  <div className="space-y-2">
+                    {col.items.map((it: any, i: number) => (
+                      <div key={i} className="flex gap-2">
+                        <Input placeholder="Label" value={it.label} onChange={(e) => { const c = [...col.items]; c[i] = { ...c[i], label: e.target.value }; col.setItems(c); }} className="bg-black/[0.02] border-black/[0.08] h-9 text-xs" />
+                        <Input placeholder="URL" value={it.url} onChange={(e) => { const c = [...col.items]; c[i] = { ...c[i], url: e.target.value }; col.setItems(c); }} className="bg-black/[0.02] border-black/[0.08] h-9 text-xs" />
+                        <button onClick={() => col.setItems(col.items.filter((_: any, j: number) => j !== i))} className="px-2 text-gray-300 hover:text-red-400 text-lg leading-none">×</button>
+                      </div>
+                    ))}
+                    <button onClick={() => col.setItems([...col.items, { label: "", url: "" }])} className="text-xs text-gold hover:underline">+ Add link</button>
+                  </div>
+                </div>
+              ))}
             </div>
-            <div className="space-y-2">
-              <Label>Column 2 title</Label>
-              <Input value={footer.value.col2_title} onChange={(e) => footer.setValue({ ...footer.value, col2_title: e.target.value })} />
-              <LinkList items={footer.value.col2} onChange={(v) => footer.setValue({ ...footer.value, col2: v })} />
-            </div>
-          </div>
-          <Button onClick={footer.save} className="bg-gradient-gold text-onyx hover:brightness-110">Save</Button>
+            <Button onClick={footer.save} className="bg-gradient-gold text-onyx font-bold hover:brightness-105">Save</Button>
+          </FormCard>
         </TabsContent>
       </Tabs>
-    </div>
-  );
-}
-
-function LinkList({ items, onChange }: { items: { label: string; url: string }[]; onChange: (v: { label: string; url: string }[]) => void }) {
-  return (
-    <div className="space-y-2">
-      {items.map((it, i) => (
-        <div key={i} className="flex gap-2">
-          <Input placeholder="Label" value={it.label} onChange={(e) => { const c = [...items]; c[i] = { ...c[i], label: e.target.value }; onChange(c); }} />
-          <Input placeholder="URL" value={it.url} onChange={(e) => { const c = [...items]; c[i] = { ...c[i], url: e.target.value }; onChange(c); }} />
-          <Button type="button" variant="outline" onClick={() => onChange(items.filter((_, j) => j !== i))}>×</Button>
-        </div>
-      ))}
-      <Button type="button" variant="outline" size="sm" onClick={() => onChange([...items, { label: "", url: "" }])}>+ Add link</Button>
-    </div>
+    </AdminPage>
   );
 }

@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
-import { Star, ShoppingBag, ShieldCheck, Truck, RotateCcw } from "lucide-react";
+import { Star, ShoppingBag, ShieldCheck, Truck, RotateCcw, AlertTriangle } from "lucide-react";
 import { useProduct, useProducts } from "@/lib/queries";
 import { ProductCard } from "@/components/ProductCard";
 import { useCart } from "@/store/cart";
@@ -8,12 +8,9 @@ import { toast } from "sonner";
 import { useNavigate } from "@tanstack/react-router";
 import { formatPrice } from "@/lib/utils";
 
-
 export const Route = createFileRoute("/products/$id")({
   head: () => ({
-    meta: [
-      { title: "Product — LUXE Timepieces" },
-    ],
+    meta: [{ title: "Product — Virazo Watch" }],
   }),
   component: ProductPage,
 });
@@ -46,6 +43,14 @@ function ProductPage() {
     );
   }
 
+  // ✅ FIX: Derive stock state from the product object
+  const isSoldOut = !product.inStock;
+  const isLowStock = product.inStock && product.stock <= product.lowStockThreshold;
+
+  // ✅ FIX: Clamp qty to available stock so user can't order more than available
+  const maxQty = product.stock;
+  const safeQty = Math.min(qty, maxQty);
+
   const related = allProducts.filter((p) => p.id !== product.id && p.brand === product.brand).slice(0, 4);
   const relatedFinal = related.length ? related : allProducts.filter((p) => p.id !== product.id).slice(0, 4);
 
@@ -53,28 +58,38 @@ function ProductPage() {
     <div className="pt-28 pb-20">
       <div className="container-luxe">
         <nav className="text-xs text-muted-foreground mb-8 tracking-wider">
-          <Link to="/" className="hover:text-gold">HOME</Link> /{" "}
-          <Link to="/shop" className="hover:text-gold">SHOP</Link> /{" "}
+          <Link to="/" className="hover:text-gold">HOME</Link> {" / "}
+          <Link to="/shop" className="hover:text-gold">SHOP</Link> {" / "}
           <span className="text-gold">{product.name.toUpperCase()}</span>
         </nav>
 
         <div className="grid lg:grid-cols-2 gap-10 lg:gap-16">
+          {/* Images */}
           <div>
             <div
-              className="relative aspect-square overflow-hidden rounded-xl hairline bg-card cursor-zoom-in"
-              onMouseEnter={() => setZoom(true)}
+              className={`relative aspect-square overflow-hidden rounded-xl hairline bg-card ${!isSoldOut ? "cursor-zoom-in" : ""}`}
+              onMouseEnter={() => !isSoldOut && setZoom(true)}
               onMouseLeave={() => setZoom(false)}
               onMouseMove={(e) => {
+                if (isSoldOut) return;
                 const r = e.currentTarget.getBoundingClientRect();
                 setPos({ x: ((e.clientX - r.left) / r.width) * 100, y: ((e.clientY - r.top) / r.height) * 100 });
               }}
             >
+              {/* ✅ FIX: Sold Out overlay on detail page */}
+              {isSoldOut && (
+                <div className="absolute inset-0 z-10 bg-black/50 flex items-center justify-center">
+                  <span className="bg-black/80 border border-white/20 text-white text-sm font-black tracking-[0.2em] uppercase px-6 py-3 rounded-full">
+                    Sold Out
+                  </span>
+                </div>
+              )}
               <img
                 src={product.images[active]}
                 alt={product.name}
                 width={800}
                 height={800}
-                className="w-full h-full object-cover transition-transform duration-300"
+                className={`w-full h-full object-cover transition-transform duration-300 ${isSoldOut ? "grayscale opacity-60" : ""}`}
                 style={zoom ? { transform: `scale(2)`, transformOrigin: `${pos.x}% ${pos.y}%` } : undefined}
               />
             </div>
@@ -93,6 +108,7 @@ function ProductPage() {
             )}
           </div>
 
+          {/* Info */}
           <div>
             <p className="text-xs tracking-[0.4em] text-gold uppercase">{product.brand}</p>
             <h1 className="font-display text-4xl md:text-5xl mt-2 leading-tight">{product.name}</h1>
@@ -108,40 +124,64 @@ function ProductPage() {
               {product.oldPrice && (
                 <span className="text-lg text-muted-foreground line-through">{formatPrice(product.oldPrice)}</span>
               )}
-              {product.inStock ? (
-                <span className="ml-auto text-xs tracking-wider text-emerald-400 uppercase">In Stock</span>
+              {/* ✅ FIX: Stock status label */}
+              {isSoldOut ? (
+                <span className="ml-auto text-xs tracking-wider text-destructive uppercase font-bold">Sold Out</span>
+              ) : isLowStock ? (
+                <span className="ml-auto text-xs tracking-wider text-amber-400 uppercase font-bold flex items-center gap-1">
+                  <AlertTriangle className="w-3 h-3" /> Only {product.stock} left
+                </span>
               ) : (
-                <span className="ml-auto text-xs tracking-wider text-destructive uppercase">Sold Out</span>
+                <span className="ml-auto text-xs tracking-wider text-emerald-400 uppercase">In Stock</span>
               )}
             </div>
 
             <p className="mt-6 text-muted-foreground leading-relaxed">{product.description}</p>
 
-            <div className="mt-8 flex items-center gap-4">
-              <div className="flex items-center hairline rounded">
-                <button onClick={() => setQty((q) => Math.max(1, q - 1))} className="px-4 py-3 hover:text-gold">−</button>
-                <span className="px-4 min-w-[50px] text-center">{qty}</span>
-                <button onClick={() => setQty((q) => q + 1)} className="px-4 py-3 hover:text-gold">+</button>
+            {/* ✅ FIX: Entire purchase section hidden / disabled when sold out */}
+            {isSoldOut ? (
+              <div className="mt-8 p-5 rounded-xl border border-destructive/20 bg-destructive/5 text-center">
+                <p className="text-destructive font-semibold">This item is currently out of stock.</p>
+                <p className="text-muted-foreground text-sm mt-1">Check back soon or browse similar watches.</p>
+                <Link to="/shop" className="inline-block mt-4 text-gold text-sm underline">Browse Shop →</Link>
               </div>
-              <button
-                onClick={() => {
-                  add(product, qty);
-                  toast.success("Added to cart", { description: `${product.name} × ${qty}` });
-                }}
-                className="flex-1 bg-gradient-gold text-onyx font-semibold tracking-wider py-3.5 rounded shadow-gold flex items-center justify-center gap-2 hover:brightness-110 transition"
-              >
-                <ShoppingBag className="w-4 h-4" /> ADD TO CART
-              </button>
-            </div>
-            <button
-              onClick={() => {
-                add(product, qty);
-                navigate({ to: "/checkout" });
-              }}
-              className="mt-3 w-full hairline tracking-wider py-3.5 rounded hover:bg-gold/10 transition uppercase text-sm"
-            >
-              Buy Now →
-            </button>
+            ) : (
+              <>
+                <div className="mt-8 flex items-center gap-4">
+                  <div className="flex items-center hairline rounded">
+                    <button
+                      onClick={() => setQty((q) => Math.max(1, q - 1))}
+                      className="px-4 py-3 hover:text-gold"
+                    >−</button>
+                    <span className="px-4 min-w-[50px] text-center">{safeQty}</span>
+                    {/* ✅ FIX: Max qty capped at available stock */}
+                    <button
+                      onClick={() => setQty((q) => Math.min(maxQty, q + 1))}
+                      className="px-4 py-3 hover:text-gold disabled:opacity-30"
+                      disabled={safeQty >= maxQty}
+                    >+</button>
+                  </div>
+                  <button
+                    onClick={() => {
+                      add(product, safeQty);
+                      toast.success("Added to cart", { description: `${product.name} × ${safeQty}` });
+                    }}
+                    className="flex-1 bg-gradient-gold text-onyx font-semibold tracking-wider py-3.5 rounded shadow-gold flex items-center justify-center gap-2 hover:brightness-110 transition"
+                  >
+                    <ShoppingBag className="w-4 h-4" /> ADD TO CART
+                  </button>
+                </div>
+                <button
+                  onClick={() => {
+                    add(product, safeQty);
+                    navigate({ to: "/checkout" });
+                  }}
+                  className="mt-3 w-full hairline tracking-wider py-3.5 rounded hover:bg-gold/10 transition uppercase text-sm"
+                >
+                  Buy Now →
+                </button>
+              </>
+            )}
 
             <div className="mt-8 grid grid-cols-3 gap-3">
               {[

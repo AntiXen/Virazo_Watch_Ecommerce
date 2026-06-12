@@ -1,45 +1,117 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { 
-  Package, ShoppingCart, DollarSign, AlertTriangle, 
-  Clock, TrendingUp, ChevronRight, ArrowUpRight, Loader2 
+import {
+  Package, ShoppingCart, DollarSign, AlertTriangle,
+  Clock, TrendingUp, ChevronRight, Loader2,
+  CheckCircle, XCircle, RefreshCw, ArrowUpRight, ArrowDownRight,
 } from "lucide-react";
-import { 
-  LineChart, Line, XAxis, YAxis, Tooltip, 
-  ResponsiveContainer, CartesianGrid, AreaChart, Area 
+import {
+  ResponsiveContainer, AreaChart, Area, XAxis, Tooltip,
 } from "recharts";
 import { formatPrice } from "@/lib/utils";
-import { Link } from "@tanstack/react-router";
 
-export const Route = createFileRoute("/admin/")({
-  component: Dashboard,
-});
+export const Route = createFileRoute("/admin/")({ component: Dashboard });
 
-function StatCard({ label, value, icon: Icon, accent, trend }: { label: string; value: string; icon: any; accent?: boolean; trend?: string }) {
+// ─── Tiny sparkline used inside each KPI card ─────────────────────────────────
+function Spark({ data, color = "#d4a657" }: { data: number[]; color?: string }) {
+  const pts = data.map((v, i) => ({ v }));
   return (
-    <div className="bg-onyx border border-white/5 rounded-3xl p-6 shadow-xl relative overflow-hidden group hover:border-gold/20 transition-all">
-      <div className="flex items-center justify-between relative z-10">
-        <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center text-white/40 group-hover:text-gold transition-colors">
-          <Icon size={20} />
+    <ResponsiveContainer width="100%" height={40}>
+      <AreaChart data={pts} margin={{ top: 2, right: 0, left: 0, bottom: 0 }}>
+        <defs>
+          <linearGradient id={`sg-${color.replace("#","")}`} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={color} stopOpacity={0.3} />
+            <stop offset="100%" stopColor={color} stopOpacity={0} />
+          </linearGradient>
+        </defs>
+        <Area type="monotone" dataKey="v" stroke={color} strokeWidth={1.5}
+          fill={`url(#sg-${color.replace("#","")})`} dot={false} />
+      </AreaChart>
+    </ResponsiveContainer>
+  );
+}
+
+// ─── KPI card with embedded sparkline ────────────────────────────────────────
+function KpiCard({
+  label, value, sub, icon: Icon, accent, danger, sparkData, delta,
+}: {
+  label: string; value: string; sub?: string; icon: any;
+  accent?: boolean; danger?: boolean; sparkData?: number[]; delta?: number;
+}) {
+  const positive = delta !== undefined && delta >= 0;
+  return (
+    <div className={`relative flex flex-col justify-between rounded-2xl border overflow-hidden p-5 group transition-all duration-200
+      ${danger
+        ? "bg-red-50 border-red-200 hover:border-red-300"
+        : "bg-white border-black/[0.07] hover:border-gold/30 shadow-sm"}`}>
+      {/* Top row */}
+      <div className="flex items-center justify-between mb-3">
+        <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-[13px] transition-colors
+          ${danger ? "bg-red-100 text-red-400" : "bg-black/5 text-black/30 group-hover:text-gold"}`}>
+          <Icon size={15} />
         </div>
-        {trend && (
-           <div className="flex items-center gap-1 text-[10px] font-black text-emerald-400 bg-emerald-500/10 px-2 py-1 rounded-full">
-              <ArrowUpRight size={10} /> {trend}
-           </div>
+        {delta !== undefined && (
+          <div className={`flex items-center gap-0.5 text-[10px] font-black px-1.5 py-0.5 rounded-md
+            ${positive ? "text-emerald-400 bg-emerald-500/10" : "text-red-400 bg-red-500/10"}`}>
+            {positive ? <ArrowUpRight size={10} /> : <ArrowDownRight size={10} />}
+            {Math.abs(delta)}%
+          </div>
         )}
       </div>
-      <div className="mt-5 relative z-10">
-        <p className="text-[10px] tracking-[0.2em] text-white/30 uppercase font-black">{label}</p>
-        <h3 className={`text-3xl font-display mt-1 ${accent ? "text-gold" : "text-white"}`}>{value}</h3>
+
+      {/* Value */}
+      <div>
+        <p className="text-[9px] tracking-[0.2em] text-black/30 uppercase font-black mb-1">{label}</p>
+        <p className={`font-display leading-none text-[1.75rem]
+          ${danger ? "text-red-400" : accent ? "text-gold" : "text-gray-900"}`}>
+          {value}
+        </p>
+        {sub && <p className="text-[9px] text-black/25 mt-1.5 font-medium">{sub}</p>}
       </div>
-      <div className="absolute -bottom-2 -right-2 opacity-[0.02] text-white pointer-events-none group-hover:scale-110 transition-transform">
-         <Icon size={80} />
-      </div>
+
+      {/* Sparkline flush to bottom */}
+      {sparkData && (
+        <div className="mt-3 -mx-5 -mb-5">
+          <Spark data={sparkData} color={danger ? "#f87171" : accent ? "#d4a657" : "#6b7280"} />
+        </div>
+      )}
     </div>
   );
 }
 
+// ─── Custom chart tooltip ─────────────────────────────────────────────────────
+function ChartTip({ active, payload, label }: any) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="bg-white border border-gold/30 rounded-xl px-4 py-3 shadow-xl">
+      <p className="text-[9px] text-black/40 uppercase tracking-widest mb-1">{label}</p>
+      <p className="text-gold font-display text-xl leading-none">{formatPrice(payload[0].value)}</p>
+    </div>
+  );
+}
+
+// ─── Status pill ──────────────────────────────────────────────────────────────
+function StatusPill({ status, paymentStatus }: { status: string; paymentStatus?: string }) {
+  if (paymentStatus === "refunded") return (
+    <span className="inline-flex items-center gap-1 text-[9px] font-black uppercase tracking-wider text-blue-400 bg-blue-500/10 px-2 py-1 rounded-full">
+      <RefreshCw size={8} /> Refunded
+    </span>
+  );
+  const map: Record<string, string> = {
+    delivered:  "text-emerald-400 bg-emerald-500/10",
+    processing: "text-blue-400 bg-blue-500/10",
+    pending:    "text-amber-400 bg-amber-500/10",
+    cancelled:  "text-red-400 bg-red-500/10",
+  };
+  return (
+    <span className={`inline-block text-[9px] font-black uppercase tracking-wider px-2 py-1 rounded-full ${map[status] || "text-black/40 bg-white/5"}`}>
+      {status}
+    </span>
+  );
+}
+
+// ─── Dashboard ────────────────────────────────────────────────────────────────
 function Dashboard() {
   const { data, isLoading } = useQuery({
     queryKey: ["admin-dashboard-stats"],
@@ -48,210 +120,319 @@ function Dashboard() {
         supabase.from("orders").select("*").order("created_at", { ascending: false }),
         supabase.from("products").select("*"),
       ]);
-
-      const orders = ordersRes.data || [];
+      const orders   = ordersRes.data  || [];
       const products = productsRes.data || [];
 
-      // 1. Calculate Summary Stats
-      const totalRevenue = orders
-        .filter(o => o.status !== "cancelled")
-        .reduce((sum, o) => sum + Number(o.total), 0);
-      
-      const pendingCount = orders.filter(o => o.status === "pending").length;
-      const lowStockProducts = products.filter(p => p.stock <= p.low_stock_threshold);
-      
-      // 2. Generate 7-Day Revenue Data
-      const chartData = [];
-      for (let i = 6; i >= 0; i--) {
+      // Revenue excludes cancelled + refunded
+      const validOrders = orders.filter(
+        o => o.status !== "cancelled" && o.payment_status !== "refunded"
+      );
+      const netRevenue = validOrders.reduce((s, o) => s + Number(o.total), 0);
+
+      // Build 7-day chart data
+      const chartData = Array.from({ length: 7 }, (_, i) => {
         const d = new Date();
-        d.setDate(d.getDate() - i);
-        const dateStr = d.toISOString().split('T')[0];
-        
-        const dayRevenue = orders
-          .filter(o => o.created_at.startsWith(dateStr) && o.status !== "cancelled")
-          .reduce((sum, o) => sum + Number(o.total), 0);
+        d.setDate(d.getDate() - (6 - i));
+        const dateStr = d.toISOString().split("T")[0];
+        const rev = validOrders
+          .filter(o => o.created_at.startsWith(dateStr))
+          .reduce((s, o) => s + Number(o.total), 0);
+        return { name: d.toLocaleDateString("en-US", { weekday: "short" }), revenue: rev };
+      });
 
-        chartData.push({
-          name: d.toLocaleDateString('en-US', { weekday: 'short' }),
-          revenue: dayRevenue,
-        });
-      }
+      const sparkRevenue = chartData.map(d => d.revenue);
 
-      // 3. Get Top Selling Products (Sorted by reviews_count as popularity proxy)
-      const topProducts = [...products]
-        .sort((a, b) => (b.reviews_count || 0) - (a.reviews_count || 0))
-        .slice(0, 5);
+      const pendingCount   = orders.filter(o => o.status === "pending").length;
+      const cancelledCount = orders.filter(o => o.status === "cancelled").length;
+      const refundedCount  = orders.filter(o => o.payment_status === "refunded").length;
+      const deliveredCount = orders.filter(o => o.status === "delivered").length;
+      const lowStock       = products.filter(p => p.stock > 0 && p.stock <= p.low_stock_threshold);
+      const soldOut        = products.filter(p => p.stock === 0);
+      const topProducts    = [...products].sort((a, b) => (b.reviews_count || 0) - (a.reviews_count || 0)).slice(0, 4);
 
       return {
         totalOrders: orders.length,
-        totalRevenue,
+        netRevenue,
         pendingCount,
+        cancelledCount,
+        refundedCount,
+        deliveredCount,
         productCount: products.length,
-        lowStockCount: lowStockProducts.length,
-        topReviewedCount: products.length > 0 ? Math.max(...products.map(p => p.reviews_count || 0)) : 0,
+        lowStockCount: lowStock.length,
+        soldOutCount: soldOut.length,
         chartData,
-        lowStockProducts: lowStockProducts.slice(0, 5),
-        topProducts
+        sparkRevenue,
+        alertProducts: [...soldOut, ...lowStock].slice(0, 5),
+        recentOrders: orders.slice(0, 7),
+        topProducts,
+        todayRevenue: chartData[6].revenue,
       };
     },
-    refetchInterval: 60000, // Refresh every minute
+    refetchInterval: 60_000,
   });
 
   if (isLoading) return (
-    <div className="h-full flex items-center justify-center">
-       <Loader2 className="w-8 h-8 text-gold animate-spin" />
+    <div className="h-[60vh] grid place-items-center">
+      <Loader2 className="w-6 h-6 text-gold animate-spin" />
     </div>
   );
 
-  const stats = data!;
+  const s = data!;
 
   return (
-    <div className="space-y-8 pb-20 animate-in fade-in duration-700">
-      <div>
-        <h1 className="font-display text-4xl text-white">Boutique Overview</h1>
-        <p className="text-white/40 text-sm mt-1 uppercase tracking-widest font-medium">Real-time performance analytics</p>
+    <div className="space-y-6 pb-20 animate-in fade-in duration-500">
+
+      {/* ── Page header ────────────────────────────────────────────────────── */}
+      <div className="flex items-end justify-between pt-1">
+        <div>
+          <p className="text-[9px] tracking-[0.3em] text-black/25 uppercase font-black mb-1.5">Virazo Control Panel</p>
+          <h1 className="font-display text-[2.25rem] leading-none text-gray-900">Dashboard</h1>
+        </div>
+        <p className="text-[10px] text-black/25 font-medium hidden sm:block">
+          {new Date().toLocaleDateString("en-BD", { weekday: "long", day: "numeric", month: "long" })}
+        </p>
       </div>
 
-      {/* Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-5">
-        <StatCard label="Total Orders" value={stats.totalOrders.toString()} icon={ShoppingCart} trend="+12%" />
-        <StatCard label="Net Revenue" value={formatPrice(stats.totalRevenue)} icon={DollarSign} accent trend="+8%" />
-        <StatCard label="Awaiting Action" value={stats.pendingCount.toString()} icon={Clock} />
-        <StatCard label="Collection Size" value={stats.productCount.toString()} icon={Package} />
-        <StatCard label="Low Inventory" value={stats.lowStockCount.toString()} icon={AlertTriangle} />
-        <StatCard label="Max Reviews" value={stats.topReviewedCount.toString()} icon={TrendingUp} />
+      {/* ── KPI grid (6 cards) ─────────────────────────────────────────────── */}
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
+        <KpiCard
+          label="Net Revenue"   value={formatPrice(s.netRevenue)}
+          icon={DollarSign}     accent
+          sub="excl. cancelled & refunded"
+          sparkData={s.sparkRevenue}
+          delta={8}
+        />
+        <KpiCard
+          label="Total Orders"  value={String(s.totalOrders)}
+          icon={ShoppingCart}   sub={`${s.pendingCount} pending`}
+          sparkData={s.sparkRevenue.map(v => v > 0 ? 1 : 0)}
+          delta={12}
+        />
+        <KpiCard
+          label="Today's Sales" value={formatPrice(s.todayRevenue)}
+          icon={TrendingUp}     accent
+        />
+        <KpiCard
+          label="Collection"    value={String(s.productCount)}
+          icon={Package}        sub={`${s.soldOutCount} sold out`}
+        />
+        <KpiCard
+          label="Low Stock"     value={String(s.lowStockCount)}
+          icon={AlertTriangle}  danger={s.lowStockCount > 0}
+          sub={s.soldOutCount > 0 ? `${s.soldOutCount} sold out` : undefined}
+        />
+        <KpiCard
+          label="Pending"       value={String(s.pendingCount)}
+          icon={Clock}          sub={`${s.cancelledCount} cancelled`}
+        />
       </div>
 
-      <div className="grid lg:grid-cols-12 gap-8">
-        {/* Main Chart */}
-        <div className="lg:col-span-8 bg-onyx border border-white/5 rounded-[2.5rem] p-8 shadow-2xl">
-          <div className="flex items-center justify-between mb-10">
+      {/* ── Main chart row ─────────────────────────────────────────────────── */}
+      <div className="grid lg:grid-cols-12 gap-4">
+
+        {/* Revenue chart */}
+        <div className="lg:col-span-8 bg-white border border-black/[0.07] rounded-2xl p-6 flex flex-col">
+          <div className="flex items-start justify-between mb-6">
             <div>
-              <h2 className="font-display text-2xl text-white">Revenue Performance</h2>
-              <p className="text-[10px] text-white/30 uppercase tracking-widest font-bold">Last 7 Days Activity</p>
+              <p className="text-[9px] tracking-[0.2em] text-black/30 uppercase font-black">Revenue Performance</p>
+              <h2 className="font-display text-2xl text-white mt-0.5">Last 7 Days</h2>
             </div>
             <div className="text-right">
-               <p className="text-2xl font-display text-gold font-bold">{formatPrice(stats.chartData[6].revenue)}</p>
-               <p className="text-[9px] text-white/20 uppercase font-black">Today's Sales</p>
+              <p className="font-display text-2xl text-gold leading-none">{formatPrice(s.todayRevenue)}</p>
+              <p className="text-[9px] text-black/25 uppercase font-black mt-1">Today</p>
             </div>
           </div>
-          
-          <div className="h-[350px] w-full">
+
+          <div className="flex-1 min-h-[200px]">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={stats.chartData}>
+              <AreaChart data={s.chartData} margin={{ top: 4, right: 4, left: 4, bottom: 0 }}>
                 <defs>
-                  <linearGradient id="colorRev" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#d4a657" stopOpacity={0.3}/>
-                    <stop offset="95%" stopColor="#d4a657" stopOpacity={0}/>
+                  <linearGradient id="mainRev" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%"   stopColor="#d4a657" stopOpacity={0.25} />
+                    <stop offset="100%" stopColor="#d4a657" stopOpacity={0}    />
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.03)" />
-                <XAxis 
-                  dataKey="name" 
-                  axisLine={false} 
-                  tickLine={false} 
-                  tick={{fill: 'rgba(255,255,255,0.3)', fontSize: 10, fontWeight: 'bold'}} 
-                  dy={15}
+                <XAxis
+                  dataKey="name" axisLine={false} tickLine={false}
+                  tick={{ fill: "rgba(0,0,0,0.3)", fontSize: 10, fontWeight: 700 }}
+                  dy={10}
                 />
-                <YAxis 
-                  hide 
-                />
-                <Tooltip 
-                  contentStyle={{ backgroundColor: '#111', border: '1px solid rgba(212,166,87,0.2)', borderRadius: '15px' }}
-                  itemStyle={{ color: '#d4a657', fontWeight: 'bold' }}
-                />
-                <Area 
-                  type="monotone" 
-                  dataKey="revenue" 
-                  stroke="#d4a657" 
-                  strokeWidth={4}
-                  fillOpacity={1} 
-                  fill="url(#colorRev)" 
+                <Tooltip content={<ChartTip />} cursor={{ stroke: "rgba(212,166,87,0.12)", strokeWidth: 1 }} />
+                <Area
+                  type="monotone" dataKey="revenue"
+                  stroke="#d4a657" strokeWidth={2}
+                  fill="url(#mainRev)" fillOpacity={1}
+                  dot={false}
+                  activeDot={{ r: 4, fill: "#d4a657", stroke: "#fff", strokeWidth: 2 }}
                 />
               </AreaChart>
             </ResponsiveContainer>
           </div>
         </div>
 
-        {/* Low Stock Sidebar */}
-        <div className="lg:col-span-4 bg-onyx border border-white/5 rounded-[2.5rem] p-8 shadow-2xl flex flex-col">
-          <div className="flex items-center justify-between mb-8">
-             <h2 className="font-display text-2xl text-white">Stock Alerts</h2>
-             <Link to="/admin/inventory" className="text-[10px] font-black text-gold uppercase tracking-tighter hover:underline">Manage All</Link>
-          </div>
-          
-          <div className="space-y-4 flex-1">
-            {stats.lowStockProducts.length === 0 ? (
-              <div className="h-full flex flex-col items-center justify-center text-center opacity-20 py-10">
-                 <ShieldCheck size={48} className="mb-4" />
-                 <p className="text-xs uppercase font-black tracking-widest">Inventory Secure</p>
-              </div>
-            ) : (
-              stats.lowStockProducts.map((p) => (
-                <div key={p.id} className="bg-white/5 rounded-2xl p-4 flex items-center justify-between border border-white/5 hover:border-red-500/30 transition-all group">
-                   <div className="flex-1 pr-3">
-                      <p className="text-sm font-bold text-white truncate group-hover:text-red-400 transition-colors">{p.name}</p>
-                      <p className="text-[10px] text-white/30 uppercase font-black mt-1">SKU: {p.sku || 'N/A'}</p>
-                   </div>
-                   <div className="text-right">
-                      <p className="text-lg font-display text-red-400 font-bold leading-none">{p.stock}</p>
-                      <p className="text-[8px] text-white/20 uppercase font-black">Left</p>
-                   </div>
-                </div>
-              ))
-            )}
+        {/* Stock alerts panel */}
+        <div className="lg:col-span-4 bg-white border border-black/[0.07] rounded-2xl flex flex-col overflow-hidden">
+          <div className="flex items-center justify-between px-5 py-4 border-b border-black/[0.07]">
+            <h2 className="font-display text-base text-white">Stock Alerts</h2>
+            <Link to="/admin/inventory"
+              className="text-[9px] font-black text-gold/50 uppercase tracking-widest hover:text-gold transition-colors flex items-center gap-1">
+              Manage <ChevronRight size={10} />
+            </Link>
           </div>
 
-          <div className="mt-8 pt-6 border-t border-white/5">
-             <div className="p-4 bg-gold/5 rounded-2xl border border-gold/10">
-                <p className="text-[10px] text-gold font-black uppercase tracking-widest mb-1">Stock Strategy</p>
-                <p className="text-[11px] text-white/40 leading-relaxed italic">Items reaching alert thresholds should be restocked within 48 hours to maintain sales velocity.</p>
-             </div>
+          <div className="flex-1 overflow-y-auto divide-y divide-white/[0.04] px-1 py-1">
+            {s.alertProducts.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-10 opacity-20">
+                <CheckCircle size={28} className="mb-2" />
+                <p className="text-[9px] uppercase font-black tracking-widest">All stock healthy</p>
+              </div>
+            ) : s.alertProducts.map((p: any) => (
+              <div key={p.id} className="flex items-center gap-3 px-4 py-3 hover:bg-black/3 transition-colors rounded-xl group">
+                <div className={`w-2 h-2 rounded-full shrink-0 ${p.stock === 0 ? "bg-red-500 animate-pulse" : "bg-amber-400"}`} />
+                <div className="flex-1 min-w-0">
+                  <p className="text-[12px] font-bold text-white truncate group-hover:text-gold transition-colors">{p.name}</p>
+                  <p className="text-[9px] text-black/30 font-mono">{p.sku || "—"}</p>
+                </div>
+                <div className="text-right shrink-0">
+                  {p.stock === 0 ? (
+                    <span className="text-[9px] font-black text-red-400 uppercase tracking-wider">Sold Out</span>
+                  ) : (
+                    <span className="text-[11px] font-display text-amber-400">{p.stock} <span className="text-[8px] text-black/25 font-black uppercase">left</span></span>
+                  )}
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       </div>
 
-      {/* Top Products Section */}
-      <div className="space-y-6">
-        <div className="flex items-center justify-between">
-           <h2 className="font-display text-3xl text-white">Curated Popularity</h2>
-           <Link to="/admin/products" className="flex items-center gap-2 text-[10px] font-black text-white/30 uppercase tracking-widest hover:text-gold transition-colors">
-              Full Inventory <ChevronRight size={14} />
-           </Link>
+      {/* ── Bottom row: recent orders + order health ────────────────────────── */}
+      <div className="grid lg:grid-cols-12 gap-4">
+
+        {/* Recent orders table */}
+        <div className="lg:col-span-8 bg-white border border-black/[0.07] rounded-2xl overflow-hidden">
+          <div className="flex items-center justify-between px-6 py-4 border-b border-black/[0.07]">
+            <h2 className="font-display text-base text-white">Recent Orders</h2>
+            <Link to="/admin/orders"
+              className="text-[9px] font-black text-gold/50 uppercase tracking-widest hover:text-gold transition-colors flex items-center gap-1">
+              View all <ChevronRight size={10} />
+            </Link>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-[9px] uppercase tracking-widest text-black/20 font-black border-b border-black/[0.05]">
+                  <th className="px-6 py-3 text-left">Order</th>
+                  <th className="px-6 py-3 text-left">Customer</th>
+                  <th className="px-6 py-3 text-right">Amount</th>
+                  <th className="px-6 py-3 text-right">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {s.recentOrders.map((o: any) => {
+                  const excluded = o.status === "cancelled" || o.payment_status === "refunded";
+                  return (
+                    <tr key={o.id} className="border-b border-black/[0.04] hover:bg-black/[0.02] transition-colors group">
+                      <td className="px-6 py-3.5">
+                        <Link to="/admin/orders/$id" params={{ id: o.id }}
+                          className="font-mono text-[10px] text-black/40 group-hover:text-gold transition-colors">
+                          {o.order_number || `#${o.id.slice(0, 8)}`}
+                        </Link>
+                      </td>
+                      <td className="px-6 py-3.5 text-[13px] text-gray-900 font-medium">{o.customer_name}</td>
+                      <td className={`px-6 py-3.5 text-right font-display text-[15px] ${excluded ? "line-through text-black/20" : "text-gold"}`}>
+                        {formatPrice(o.total)}
+                      </td>
+                      <td className="px-6 py-3.5 text-right">
+                        <StatusPill status={o.status} paymentStatus={o.payment_status} />
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-5">
-          {stats.topProducts.map((p) => (
-            <div key={p.id} className="bg-onyx border border-white/5 rounded-[2rem] p-6 shadow-xl group hover:border-gold/30 transition-all">
-              <div className="aspect-square rounded-2xl overflow-hidden bg-black/40 mb-4 border border-white/5 relative">
-                 <img src={p.images?.[0] || ''} alt={p.name} className="w-full h-full object-cover opacity-60 group-hover:opacity-100 group-hover:scale-110 transition-all duration-700" />
-                 <div className="absolute top-3 right-3">
-                    <div className="w-8 h-8 rounded-full bg-black/60 backdrop-blur-md flex items-center justify-center text-gold border border-gold/20">
-                       <TrendingUp size={14} />
+        {/* Order health breakdown */}
+        <div className="lg:col-span-4 bg-white border border-black/[0.07] rounded-2xl overflow-hidden flex flex-col">
+          <div className="px-5 py-4 border-b border-black/[0.07]">
+            <h2 className="font-display text-base text-white">Order Health</h2>
+          </div>
+          <div className="flex-1 p-4 space-y-2">
+            {[
+              { label: "Delivered",  value: s.deliveredCount,  icon: CheckCircle, color: "text-emerald-400", bg: "bg-emerald-500/10", bar: "bg-emerald-500" },
+              { label: "Processing", value: s.totalOrders - s.pendingCount - s.cancelledCount - s.deliveredCount,
+                                               icon: TrendingUp,  color: "text-blue-400",    bg: "bg-blue-500/10",    bar: "bg-blue-500" },
+              { label: "Pending",    value: s.pendingCount,    icon: Clock,       color: "text-amber-400",  bg: "bg-amber-500/10",   bar: "bg-amber-500" },
+              { label: "Cancelled",  value: s.cancelledCount,  icon: XCircle,     color: "text-red-400",    bg: "bg-red-500/10",     bar: "bg-red-500" },
+              { label: "Refunded",   value: s.refundedCount,   icon: RefreshCw,   color: "text-blue-300",   bg: "bg-blue-400/10",    bar: "bg-blue-400" },
+            ].map(({ label, value, icon: Icon, color, bg, bar }) => {
+              const pct = s.totalOrders > 0 ? Math.round((value / s.totalOrders) * 100) : 0;
+              return (
+                <div key={label} className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className={`w-6 h-6 rounded-lg ${bg} flex items-center justify-center`}>
+                        <Icon size={11} className={color} />
+                      </div>
+                      <span className="text-[11px] text-white/50 font-medium">{label}</span>
                     </div>
-                 </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] text-black/25">{pct}%</span>
+                      <span className={`font-display text-lg leading-none ${color}`}>{value}</span>
+                    </div>
+                  </div>
+                  <div className="h-0.5 bg-white/5 rounded-full overflow-hidden">
+                    <div className={`h-full ${bar} rounded-full transition-all duration-700`} style={{ width: `${pct}%` }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="px-5 py-4 border-t border-black/[0.07]">
+            <p className="text-[9px] text-black/20 leading-relaxed">
+              Cancelled & refunded orders are excluded from net revenue.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Top products ───────────────────────────────────────────────────── */}
+      <div>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="font-display text-xl text-gray-900">Top Performers</h2>
+          <Link to="/admin/products"
+            className="text-[9px] font-black text-black/25 uppercase tracking-widest hover:text-gold transition-colors flex items-center gap-1">
+            Full Catalogue <ChevronRight size={10} />
+          </Link>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {s.topProducts.map((p: any) => (
+            <Link key={p.id} to="/admin/products/$id" params={{ id: p.id }}
+              className="group bg-white border border-black/[0.07] rounded-xl overflow-hidden hover:border-gold/30 hover:shadow-sm transition-all flex items-center gap-3 p-3">
+              <div className="w-12 h-12 rounded-lg overflow-hidden bg-black/5 shrink-0">
+                {p.images?.[0] ? (
+                  <img src={p.images[0]} alt={p.name}
+                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center text-black/10">
+                    <Package size={18} />
+                  </div>
+                )}
               </div>
-              <p className="text-xs font-bold text-white truncate group-hover:text-gold transition-colors">{p.name}</p>
-              <div className="flex items-center justify-between mt-3">
-                 <p className="text-lg font-display text-gold font-bold">{formatPrice(p.discount_price || p.price)}</p>
-                 <p className="text-[10px] text-white/30 font-black uppercase">{p.reviews_count || 0} Reviews</p>
+              <div className="flex-1 min-w-0">
+                <p className="text-[11px] font-bold text-gray-800 truncate group-hover:text-gold transition-colors leading-tight">{p.name}</p>
+                <p className="font-display text-gold text-sm leading-none mt-1">{formatPrice(p.discount_price || p.price)}</p>
+                <p className="text-[9px] text-black/25 font-black uppercase mt-0.5">{p.reviews_count || 0} reviews</p>
               </div>
-            </div>
+            </Link>
           ))}
         </div>
       </div>
-    </div>
-  );
-}
 
-// Simple internal ShieldCheck icon placeholder
-function ShieldCheck({ size, className }: { size: number; className?: string }) {
-  return (
-    <svg 
-      width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" 
-      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}
-    >
-      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/>
-    </svg>
+    </div>
   );
 }

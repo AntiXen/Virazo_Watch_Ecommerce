@@ -1,13 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 import { formatPrice } from "@/lib/utils";
+import { AdminPage, AdminTitle, Card, CardHeader, AdminTable, Th, Td } from "@/components/ui/admin-ui";
 
-
-export const Route = createFileRoute("/admin/reports")({
-  component: ReportsPage,
-});
+export const Route = createFileRoute("/admin/reports")({ component: ReportsPage });
 
 function ReportsPage() {
   const { data } = useQuery({
@@ -21,18 +19,12 @@ function ReportsPage() {
   const orders = data?.orders ?? [];
   const items = data?.items ?? [];
 
-  // Monthly revenue, last 6 months
-  const months: { m: string; revenue: number; orders: number }[] = [];
-  for (let i = 5; i >= 0; i--) {
-    const d = new Date(); d.setMonth(d.getMonth() - i); d.setDate(1);
+  const months = Array.from({ length: 6 }, (_, i) => {
+    const d = new Date(); d.setMonth(d.getMonth() - (5 - i)); d.setDate(1);
     const key = d.toISOString().slice(0, 7);
     const matched = orders.filter((o: any) => o.created_at.startsWith(key) && o.status !== "cancelled");
-    months.push({
-      m: d.toLocaleDateString(undefined, { month: "short", year: "2-digit" }),
-      revenue: matched.reduce((s: number, o: any) => s + Number(o.total), 0),
-      orders: matched.length,
-    });
-  }
+    return { m: d.toLocaleDateString(undefined, { month: "short", year: "2-digit" }), revenue: matched.reduce((s: number, o: any) => s + Number(o.total), 0), orders: matched.length };
+  });
 
   const productPerf = Object.values(items.reduce((acc: any, it: any) => {
     const k = it.product_name;
@@ -43,25 +35,42 @@ function ReportsPage() {
   }, {})).sort((a: any, b: any) => b.revenue - a.revenue).slice(0, 10);
 
   return (
-    <div className="space-y-6">
-      <h1 className="font-display text-3xl">Reports</h1>
+    <AdminPage>
+      <AdminTitle sub="Revenue and sales performance">Reports</AdminTitle>
 
-      <div className="bg-card border border-border rounded-xl p-5">
-        <h2 className="font-display text-xl mb-3">Monthly revenue (last 6)</h2>
-        <div className="h-72">
-          <ResponsiveContainer><BarChart data={months}><CartesianGrid stroke="rgba(255,255,255,0.05)" /><XAxis dataKey="m" stroke="rgba(255,255,255,0.5)" /><YAxis stroke="rgba(255,255,255,0.5)" /><Tooltip contentStyle={{ background: "#1a1a1a", border: "1px solid #333" }} /><Bar dataKey="revenue" fill="#d4a657" /></BarChart></ResponsiveContainer>
+      <Card>
+        <CardHeader title="Monthly Revenue (Last 6 Months)" />
+        <div className="p-6 h-64">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={months} barSize={32}>
+              <XAxis dataKey="m" axisLine={false} tickLine={false} tick={{ fill: "rgba(0,0,0,0.35)", fontSize: 11, fontWeight: 600 }} dy={8} />
+              <YAxis axisLine={false} tickLine={false} tick={{ fill: "rgba(0,0,0,0.25)", fontSize: 10 }} />
+              <Tooltip
+                contentStyle={{ background: "#fff", border: "1px solid rgba(0,0,0,0.08)", borderRadius: "12px", boxShadow: "0 4px 20px rgba(0,0,0,0.08)" }}
+                formatter={(v: any) => [formatPrice(v), "Revenue"]}
+              />
+              <Bar dataKey="revenue" fill="#d4a657" radius={[6, 6, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
         </div>
-      </div>
+      </Card>
 
-      <div className="bg-card border border-border rounded-xl p-5">
-        <h2 className="font-display text-xl mb-3">Top products</h2>
-        <table className="w-full text-sm">
-          <thead><tr className="text-left text-xs uppercase text-muted-foreground"><th className="p-2">Product</th><th className="p-2">Sold</th><th className="p-2">Revenue</th></tr></thead>
-          <tbody>{(productPerf as any[]).map((p: any, i: number) => (
-            <tr key={i} className="border-t border-border"><td className="p-2">{p.name}</td><td className="p-2">{p.qty}</td><td className="p-2 text-gold">{formatPrice(p.revenue)}</td></tr>
-          ))}{productPerf.length === 0 && <tr><td colSpan={3} className="p-6 text-center text-muted-foreground">No sales yet.</td></tr>}</tbody>
-        </table>
-      </div>
-    </div>
+      <Card>
+        <CardHeader title="Top Products by Revenue" />
+        <AdminTable>
+          <thead><tr><Th>Product</Th><Th>Units Sold</Th><Th right>Revenue</Th></tr></thead>
+          <tbody>
+            {(productPerf as any[]).map((p, i) => (
+              <tr key={i} className="hover:bg-black/[0.01] transition-colors">
+                <Td><span className="font-medium text-gray-900">{p.name}</span></Td>
+                <Td><span className="text-gray-600">{p.qty}</span></Td>
+                <Td gold right>{formatPrice(p.revenue)}</Td>
+              </tr>
+            ))}
+            {productPerf.length === 0 && <tr><td colSpan={3} className="px-5 py-8 text-center text-gray-400 text-sm">No sales data yet.</td></tr>}
+          </tbody>
+        </AdminTable>
+      </Card>
+    </AdminPage>
   );
 }

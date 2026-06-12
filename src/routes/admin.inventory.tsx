@@ -6,138 +6,143 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useState } from "react";
 import { toast } from "sonner";
-import { Boxes, History, ArrowUpRight, ArrowDownRight, Package } from "lucide-react";
+import { ArrowUpRight, ArrowDownRight, Boxes } from "lucide-react";
+import { AdminPage, AdminTitle, Card, CardHeader, AdminTable, Th, Td } from "@/components/ui/admin-ui";
 
-export const Route = createFileRoute("/admin/inventory")({
-  component: InventoryPage,
-});
+export const Route = createFileRoute("/admin/inventory")({ component: InventoryPage });
 
 function InventoryPage() {
   const qc = useQueryClient();
-  const [productId, setProductId] = useState(""); 
-  const [change, setChange] = useState(0); 
+  const [productId, setProductId] = useState("");
+  const [change, setChange] = useState<number | "">("");
   const [reason, setReason] = useState("");
-  const [isUpdating, setIsUpdating] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   const { data: products = [] } = useQuery({
     queryKey: ["inv-products"],
     queryFn: async () => (await supabase.from("products").select("id,name,sku,stock,low_stock_threshold").order("name")).data ?? [],
   });
-
   const { data: log = [] } = useQuery({
     queryKey: ["inv-log"],
     queryFn: async () => (await supabase.from("inventory_log").select("*, products(name)").order("created_at", { ascending: false }).limit(50)).data ?? [],
   });
 
   const adjust = async () => {
-    if (!productId || change === 0) return toast.error("Select a product and amount");
-    setIsUpdating(true);
-    
+    if (!productId || !change) return toast.error("Select a product and enter an amount");
+    setSaving(true);
     try {
-      const product = products.find((p: any) => p.id === productId);
-      const newStock = (product?.stock ?? 0) + change;
-      
-      // Set the custom reason for the DB Trigger
-      await supabase.rpc('set_config', { name: 'app.inventory_log_reason', value: reason || 'Manual Correction', is_local: true });
-
+      const product = (products as any[]).find((p) => p.id === productId);
+      const newStock = Math.max(0, (product?.stock ?? 0) + Number(change));
       const { error } = await supabase.from("products").update({ stock: newStock }).eq("id", productId);
       if (error) throw error;
-
-      toast.success("Stock updated successfully");
-      setChange(0); setReason("");
+      await supabase.from("inventory_log").insert({ product_id: productId, change: Number(change), reason: reason || "Manual adjustment" });
+      toast.success("Stock updated");
+      setChange(""); setReason("");
       qc.invalidateQueries({ queryKey: ["inv-products"] });
       qc.invalidateQueries({ queryKey: ["inv-log"] });
-    } catch (err: any) {
-      toast.error(err.message);
+    } catch (e: any) {
+      toast.error(e.message);
     } finally {
-      setIsUpdating(false);
+      setSaving(false);
     }
   };
 
   return (
-    <div className="space-y-8 pb-20">
-      <div>
-        <h1 className="font-display text-4xl text-white">Inventory Atelier</h1>
-        <p className="text-muted-foreground text-sm mt-1">Manage stock levels and track movement history.</p>
-      </div>
+    <AdminPage>
+      <AdminTitle sub="Adjust stock levels and review movement history">Inventory</AdminTitle>
 
-      {/* Adjustment Console */}
-      <div className="bg-onyx border border-white/5 rounded-[2rem] p-8 shadow-xl">
-        <div className="flex items-center gap-2 mb-6">
-           <Boxes className="text-gold w-5 h-5" />
-           <h2 className="text-[10px] uppercase tracking-[0.2em] text-gold font-black">Stock Adjustment Console</h2>
+      {/* Adjustment bar */}
+      <Card className="p-5">
+        <div className="flex items-center gap-2 mb-4">
+          <Boxes size={14} className="text-gold" />
+          <p className="text-[10px] font-black uppercase tracking-widest text-black/40">Stock Adjustment</p>
         </div>
-        <div className="grid md:grid-cols-4 gap-4">
+        <div className="grid md:grid-cols-4 gap-3">
           <Select value={productId} onValueChange={setProductId}>
-            <SelectTrigger className="bg-white/5 border-white/10 h-12 text-white">
-               <SelectValue placeholder="Select Timepiece" />
+            <SelectTrigger className="h-10 bg-black/[0.03] border-black/[0.08]">
+              <SelectValue placeholder="Select product" />
             </SelectTrigger>
-            <SelectContent className="bg-onyx border-white/10">
-               {products.map((p: any) => <SelectItem key={p.id} value={p.id}>{p.name} (Current: {p.stock})</SelectItem>)}
+            <SelectContent>
+              {(products as any[]).map((p) => (
+                <SelectItem key={p.id} value={p.id}>{p.name} (stock: {p.stock})</SelectItem>
+              ))}
             </SelectContent>
           </Select>
-          <Input type="number" placeholder="Adjustment (+/-)" className="bg-white/5 border-white/10 h-12" value={change || ''} onChange={(e) => setChange(Number(e.target.value))} />
-          <Input placeholder="Reason (e.g. New Shipment)" className="bg-white/5 border-white/10 h-12" value={reason} onChange={(e) => setReason(e.target.value)} />
-          <Button onClick={adjust} disabled={isUpdating} className="bg-gradient-gold text-onyx font-black h-12 shadow-gold">
-             {isUpdating ? 'UPDATING...' : 'APPLY CHANGE'}
+          <Input
+            type="number"
+            placeholder="Change e.g. +10 or -3"
+            value={change}
+            onChange={(e) => setChange(e.target.value === "" ? "" : Number(e.target.value))}
+            className="h-10 bg-black/[0.03] border-black/[0.08]"
+          />
+          <Input
+            placeholder="Reason (New shipment, Audit…)"
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            className="h-10 bg-black/[0.03] border-black/[0.08]"
+          />
+          <Button
+            onClick={adjust}
+            disabled={saving}
+            className="h-10 bg-gradient-gold text-onyx font-bold hover:brightness-105"
+          >
+            {saving ? "Applying…" : "Apply Change"}
           </Button>
         </div>
-      </div>
+      </Card>
 
-      <div className="grid lg:grid-cols-12 gap-8">
-        {/* Stock List */}
-        <div className="lg:col-span-7 bg-white/5 backdrop-blur-md border border-white/10 rounded-[2rem] overflow-hidden shadow-xl">
-          <div className="p-6 border-b border-white/5 flex items-center justify-between bg-white/5">
-             <h2 className="font-display text-xl text-white">Live Stock Levels</h2>
-             <Package size={18} className="text-white/20" />
-          </div>
-          <table className="w-full text-sm">
-            <thead className="text-[10px] uppercase tracking-widest text-gold/60 font-black">
-               <tr><th className="p-4 text-left">Product</th><th className="p-4 text-left">SKU</th><th className="p-4 text-right">Qty</th></tr>
+      {/* Tables side by side */}
+      <div className="grid lg:grid-cols-2 gap-5">
+        {/* Stock levels */}
+        <Card>
+          <CardHeader title="Live Stock Levels" />
+          <AdminTable>
+            <thead>
+              <tr><Th>Product</Th><Th>SKU</Th><Th right>Qty</Th></tr>
             </thead>
-            <tbody className="divide-y divide-white/5">
-               {products.map((p: any) => (
-                <tr key={p.id} className="hover:bg-white/5 transition-colors">
-                  <td className="p-4 font-medium text-white">{p.name}</td>
-                  <td className="p-4 text-xs font-mono text-white/30">{p.sku || '—'}</td>
-                  <td className="p-4 text-right">
-                    <span className={`font-bold text-base px-3 py-1 rounded-lg ${p.stock <= p.low_stock_threshold ? "bg-red-500/20 text-red-400 animate-pulse" : "text-emerald-400"}`}>
-                       {p.stock}
+            <tbody>
+              {(products as any[]).map((p) => (
+                <tr key={p.id} className="hover:bg-black/[0.01] transition-colors">
+                  <Td>{p.name}</Td>
+                  <Td mono>{p.sku ?? "—"}</Td>
+                  <td className="px-5 py-3.5 text-right border-b border-black/[0.04]">
+                    <span className={`inline-block font-bold text-sm px-2.5 py-0.5 rounded-lg
+                      ${p.stock === 0
+                        ? "bg-red-50 text-red-500"
+                        : p.stock <= p.low_stock_threshold
+                          ? "bg-amber-50 text-amber-600"
+                          : "bg-emerald-50 text-emerald-600"}`}>
+                      {p.stock}
                     </span>
                   </td>
                 </tr>
               ))}
             </tbody>
-          </table>
-        </div>
+          </AdminTable>
+        </Card>
 
-        {/* History Log */}
-        <div className="lg:col-span-5 bg-white/5 backdrop-blur-md border border-white/10 rounded-[2rem] overflow-hidden shadow-xl">
-          <div className="p-6 border-b border-white/5 flex items-center justify-between bg-white/5">
-             <h2 className="font-display text-xl text-white">Movement History</h2>
-             <History size={18} className="text-white/20" />
-          </div>
-          <div className="max-h-[500px] overflow-y-auto no-scrollbar p-6 space-y-4">
-            {log.map((l: any) => (
-              <div key={l.id} className="flex items-center justify-between p-4 bg-white/5 rounded-2xl border border-white/5 group hover:border-gold/20 transition-all">
-                <div className="flex-1 pr-4">
-                  <p className="text-sm font-bold text-white group-hover:text-gold transition-colors">{l.products?.name}</p>
-                  <div className="flex items-center gap-2 mt-1">
-                    <span className="text-[10px] text-white/40 uppercase font-black tracking-tighter">{l.reason}</span>
-                    <span className="text-[10px] text-white/20">•</span>
-                    <span className="text-[10px] text-white/20 font-medium">{new Date(l.created_at).toLocaleDateString()}</span>
-                  </div>
+        {/* Movement history */}
+        <Card>
+          <CardHeader title="Movement History" />
+          <div className="divide-y divide-black/[0.05] max-h-[420px] overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            {(log as any[]).map((l) => (
+              <div key={l.id} className="flex items-center justify-between px-6 py-3.5 hover:bg-black/[0.01] transition-colors">
+                <div>
+                  <p className="text-sm font-medium text-gray-800">{l.products?.name}</p>
+                  <p className="text-[10px] text-gray-400 mt-0.5">{l.reason} · {new Date(l.created_at).toLocaleDateString()}</p>
                 </div>
-                <div className={`flex items-center gap-1 font-black text-sm ${l.change > 0 ? "text-emerald-400" : "text-red-400"}`}>
-                   {l.change > 0 ? <ArrowUpRight size={14}/> : <ArrowDownRight size={14}/>}
-                   {Math.abs(l.change)}
+                <div className={`flex items-center gap-1 font-bold text-sm ${l.change > 0 ? "text-emerald-500" : "text-red-400"}`}>
+                  {l.change > 0 ? <ArrowUpRight size={14} /> : <ArrowDownRight size={14} />}
+                  {Math.abs(l.change)}
                 </div>
               </div>
             ))}
-            {log.length === 0 && <p className="text-center text-white/20 py-10 italic">No movement recorded.</p>}
+            {log.length === 0 && (
+              <p className="px-6 py-8 text-center text-gray-400 text-sm">No movement recorded yet.</p>
+            )}
           </div>
-        </div>
+        </Card>
       </div>
-    </div>
+    </AdminPage>
   );
 }

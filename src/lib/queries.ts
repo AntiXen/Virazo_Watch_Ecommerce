@@ -22,6 +22,10 @@ export type Product = {
   specs: { label: string; value: string }[];
   warranty: string;
   inStock: boolean;
+  // ✅ FIX: Expose raw stock count and threshold so ProductCard can show
+  // "Only N left" low-stock badge and block add-to-cart when sold out.
+  stock: number;
+  lowStockThreshold: number;
   tags: string[];
 };
 
@@ -49,7 +53,10 @@ function mapProduct(p: DbProduct, brandName: string): Product {
     description: p.description ?? "",
     specs: (p.specs ?? []) as { label: string; value: string }[],
     warranty: p.warranty ?? "",
+    // ✅ FIX: stock === 0 means sold out; > 0 means in stock
     inStock: p.stock > 0,
+    stock: p.stock,
+    lowStockThreshold: p.low_stock_threshold ?? 5,
     tags: p.tags ?? [],
   };
 }

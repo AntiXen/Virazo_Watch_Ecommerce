@@ -9,10 +9,9 @@ import { Trash2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { slugify } from "@/lib/upload";
+import { AdminPage, AdminTitle, FormCard, AdminTable, Th, Td } from "@/components/ui/admin-ui";
 
-export const Route = createFileRoute("/admin/categories")({
-  component: CategoriesPage,
-});
+export const Route = createFileRoute("/admin/categories")({ component: CategoriesPage });
 
 function CategoriesPage() {
   const qc = useQueryClient();
@@ -29,6 +28,7 @@ function CategoriesPage() {
     if (error) return toast.error(error.message);
     setName(""); setDescription("");
     qc.invalidateQueries({ queryKey: ["admin-cats"] });
+    toast.success("Category added");
   };
   const del = async (id: string) => {
     if (!confirm("Delete?")) return;
@@ -37,27 +37,28 @@ function CategoriesPage() {
   };
 
   return (
-    <div className="space-y-6 max-w-3xl">
-      <h1 className="font-display text-3xl">Categories</h1>
-      <div className="bg-card border border-border rounded-xl p-5 space-y-3">
-        <div><Label>Name</Label><Input value={name} onChange={(e) => setName(e.target.value)} /></div>
-        <div><Label>Description</Label><Textarea rows={2} value={description} onChange={(e) => setDescription(e.target.value)} /></div>
-        <Button onClick={add} className="bg-gradient-gold text-onyx hover:brightness-110">Add Category</Button>
-      </div>
-      <div className="bg-card border border-border rounded-xl overflow-hidden">
-        <table className="w-full text-sm">
-          <thead className="bg-muted/30"><tr><th className="p-3 text-left">Name</th><th className="p-3 text-left">Slug</th><th className="p-3"></th></tr></thead>
-          <tbody>
-            {data.map((c: any) => (
-              <tr key={c.id} className="border-t border-border">
-                <td className="p-3 font-medium">{c.name}</td>
-                <td className="p-3 text-muted-foreground">{c.slug}</td>
-                <td className="p-3 text-right"><button onClick={() => del(c.id)} className="p-2 hover:text-destructive"><Trash2 className="w-4 h-4" /></button></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
+    <AdminPage>
+      <AdminTitle>Categories</AdminTitle>
+      <FormCard>
+        <div className="grid md:grid-cols-2 gap-4">
+          <div className="space-y-1.5"><Label className="text-xs text-gray-500 font-semibold">Name</Label><Input value={name} onChange={(e) => setName(e.target.value)} className="bg-black/[0.02] border-black/[0.08]" /></div>
+          <div className="space-y-1.5"><Label className="text-xs text-gray-500 font-semibold">Description</Label><Textarea rows={1} value={description} onChange={(e) => setDescription(e.target.value)} className="bg-black/[0.02] border-black/[0.08]" /></div>
+        </div>
+        <Button onClick={add} className="bg-gradient-gold text-onyx font-bold hover:brightness-105">Add Category</Button>
+      </FormCard>
+      <AdminTable>
+        <thead><tr><Th>Name</Th><Th>Slug</Th><Th right></Th></tr></thead>
+        <tbody>
+          {(data as any[]).map((c) => (
+            <tr key={c.id} className="hover:bg-black/[0.01] transition-colors">
+              <Td><span className="font-medium text-gray-900">{c.name}</span></Td>
+              <Td mono>{c.slug}</Td>
+              <Td right><button onClick={() => del(c.id)} className="p-1.5 hover:text-red-400 text-gray-300 transition-colors rounded-lg hover:bg-red-50"><Trash2 size={14} /></button></Td>
+            </tr>
+          ))}
+          {data.length === 0 && <tr><td colSpan={3} className="px-5 py-8 text-center text-gray-400 text-sm">No categories yet.</td></tr>}
+        </tbody>
+      </AdminTable>
+    </AdminPage>
   );
 }

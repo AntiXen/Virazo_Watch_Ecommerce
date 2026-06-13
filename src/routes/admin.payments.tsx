@@ -1,21 +1,21 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { formatPrice } from "@/lib/utils";
+import { DollarSign, TrendingDown, Wallet } from "lucide-react";
+import { AdminPage, AdminTitle, AdminTable, Th, Td } from "@/components/ui/admin-ui";
 
-export const Route = createFileRoute("/admin/payments")({
-  component: PaymentsPage,
-});
+export const Route = createFileRoute("/admin/payments")({ component: PaymentsPage });
 
 const paymentStatuses = ["unpaid", "paid", "refunded"] as const;
+
+const statusStyle: Record<string, string> = {
+  paid:     "bg-emerald-50 text-emerald-600 border-emerald-100",
+  unpaid:   "bg-amber-50 text-amber-600 border-amber-100",
+  refunded: "bg-blue-50 text-blue-500 border-blue-100",
+};
 
 function PaymentsPage() {
   const qc = useQueryClient();
@@ -23,37 +23,20 @@ function PaymentsPage() {
   const { data = [] } = useQuery({
     queryKey: ["admin-payments"],
     queryFn: async () =>
-      (
-        await supabase
-          .from("orders")
-          .select(
-            "id,order_number,customer_name,total,payment_method,payment_status,created_at"
-          )
-          .order("created_at", { ascending: false })
-      ).data ?? [],
+      (await supabase.from("orders").select("id,order_number,customer_name,total,payment_method,payment_status,created_at").order("created_at", { ascending: false })).data ?? [],
   });
 
   const updatePaymentStatus = async (id: string, status: string) => {
-    // ✅ FIX: Optimistic update — immediately update the cache so the
-    // Select reflects the new value without waiting for a network round-trip.
+    // Optimistic update
     qc.setQueryData(["admin-payments"], (old: any[]) =>
       (old ?? []).map((o) => (o.id === id ? { ...o, payment_status: status } : o))
     );
-
-    const { error } = await supabase
-      .from("orders")
-      .update({ payment_status: status as any })
-      .eq("id", id);
-
+    const { error } = await supabase.from("orders").update({ payment_status: status as any }).eq("id", id);
     if (error) {
-      // Roll back the optimistic update on error
       qc.invalidateQueries({ queryKey: ["admin-payments"] });
       return toast.error(error.message);
     }
-
-    // ✅ FIX: Added missing success toast
     toast.success("Payment status updated");
-    // Refetch to ensure the cache is in sync with the server
     qc.invalidateQueries({ queryKey: ["admin-payments"] });
   };
 
@@ -66,78 +49,70 @@ function PaymentsPage() {
     { total: 0, paid: 0 }
   );
 
+  const stats = [
+    { label: "Total Billed",  value: formatPrice(totals.total),                  icon: Wallet,      accent: false },
+    { label: "Collected",     value: formatPrice(totals.paid),                    icon: DollarSign,  accent: true  },
+    { label: "Outstanding",   value: formatPrice(totals.total - totals.paid),     icon: TrendingDown, danger: true  },
+  ];
+
   return (
-    <div className="space-y-5">
-      <h1 className="font-display text-3xl">Payments</h1>
+    <AdminPage>
+      <AdminTitle>Payments</AdminTitle>
 
-      {/* Summary Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-        <div className="bg-card border border-border rounded-xl p-4">
-          <div className="text-xs text-muted-foreground uppercase">Total Billed</div>
-          <div className="font-display text-2xl mt-2">{formatPrice(totals.total)}</div>
-        </div>
-        <div className="bg-card border border-border rounded-xl p-4">
-          <div className="text-xs text-muted-foreground uppercase">Collected</div>
-          <div className="font-display text-2xl mt-2 text-gold">{formatPrice(totals.paid)}</div>
-        </div>
-        <div className="bg-card border border-border rounded-xl p-4">
-          <div className="text-xs text-muted-foreground uppercase">Outstanding</div>
-          <div className="font-display text-2xl mt-2 text-destructive">
-            {formatPrice(totals.total - totals.paid)}
+      {/* Summary cards */}
+      <div className="grid grid-cols-3 gap-4">
+        {stats.map(({ label, value, icon: Icon, accent, danger }) => (
+          <div key={label} className={`bg-white border rounded-2xl p-5 shadow-sm
+            ${danger ? "border-red-100" : "border-black/[0.07]"}`}>
+            <div className="flex items-center gap-2 mb-3">
+              <div className={`w-8 h-8 rounded-xl flex items-center justify-center
+                ${danger ? "bg-red-50 text-red-400" : accent ? "bg-gold/10 text-gold" : "bg-black/5 text-black/30"}`}>
+                <Icon size={15} />
+              </div>
+              <p className="text-[9px] font-black uppercase tracking-widest text-black/30">{label}</p>
+            </div>
+            <p className={`font-display text-2xl leading-none
+              ${danger ? "text-red-500" : accent ? "text-gold" : "text-gray-900"}`}>
+              {value}
+            </p>
           </div>
-        </div>
+        ))}
       </div>
 
-      {/* Payments Table */}
-      <div className="bg-card border border-border rounded-xl overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="bg-muted/30 text-xs uppercase tracking-wider text-muted-foreground">
-            <tr>
-              <th className="text-left p-3">Order</th>
-              <th className="text-left p-3">Customer</th>
-              <th className="text-left p-3">Method</th>
-              <th className="text-left p-3">Total</th>
-              <th className="text-left p-3">Status</th>
+      {/* Table */}
+      <AdminTable>
+        <thead>
+          <tr><Th>Order</Th><Th>Customer</Th><Th>Method</Th><Th>Total</Th><Th>Status</Th></tr>
+        </thead>
+        <tbody>
+          {(data as any[]).map((o: any) => (
+            <tr key={o.id} className="hover:bg-black/[0.01] transition-colors">
+              <Td mono>{o.order_number}</Td>
+              <Td><span className="font-medium text-gray-900">{o.customer_name}</span></Td>
+              <Td><span className="text-[10px] font-black uppercase text-gray-400">{o.payment_method}</span></Td>
+              <Td gold>{formatPrice(Number(o.total))}</Td>
+              <td className="px-5 py-3.5 border-b border-black/[0.04]">
+                <Select value={o.payment_status} onValueChange={(v) => updatePaymentStatus(o.id, v)}>
+                  <SelectTrigger className={`w-28 h-8 text-[11px] font-bold border rounded-lg
+                    ${o.payment_status === "paid"     ? "bg-emerald-50 text-emerald-700 border-emerald-200" :
+                      o.payment_status === "refunded" ? "bg-blue-50 text-blue-600 border-blue-200" :
+                                                        "bg-amber-50 text-amber-700 border-amber-200"}`}>
+                    <SelectValue>{o.payment_status}</SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {paymentStatuses.map((s) => (
+                      <SelectItem key={s} value={s} className="text-xs">{s}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </td>
             </tr>
-          </thead>
-          <tbody>
-            {(data as any[]).map((o: any) => (
-              <tr key={o.id} className="border-t border-border">
-                <td className="p-3 font-mono text-xs">{o.order_number}</td>
-                <td className="p-3">{o.customer_name}</td>
-                <td className="p-3 uppercase text-xs">{o.payment_method}</td>
-                <td className="p-3 text-gold">{formatPrice(Number(o.total))}</td>
-                <td className="p-3">
-                  {/* ✅ FIX: value comes from (optimistically updated) query cache,
-                      so the Select shows the correct value immediately after change */}
-                  <Select
-                    value={o.payment_status}
-                    onValueChange={(v) => updatePaymentStatus(o.id, v)}
-                  >
-                    <SelectTrigger className="w-32 h-8">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {paymentStatuses.map((s) => (
-                        <SelectItem key={s} value={s}>
-                          {s}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </td>
-              </tr>
-            ))}
-            {data.length === 0 && (
-              <tr>
-                <td colSpan={5} className="p-6 text-center text-muted-foreground">
-                  No payment records found.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-    </div>
+          ))}
+          {data.length === 0 && (
+            <tr><td colSpan={5} className="px-5 py-10 text-center text-gray-400 text-sm">No payment records found.</td></tr>
+          )}
+        </tbody>
+      </AdminTable>
+    </AdminPage>
   );
 }
